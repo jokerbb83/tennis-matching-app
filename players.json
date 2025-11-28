@@ -1,0 +1,353 @@
+[
+  {
+    "name": "강상백",
+    "age_group": "40대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "B조",
+    "ntrp": 2.5
+  },
+  {
+    "name": "기원호",
+    "age_group": "30대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "요넥스",
+    "group": "B조",
+    "ntrp": 2.0
+  },
+  {
+    "name": "김금비",
+    "age_group": "30대",
+    "gender": "여",
+    "hand": "오른손",
+    "racket": "헤드",
+    "group": "B조",
+    "ntrp": 1.5
+  },
+  {
+    "name": "김연주",
+    "age_group": "30대",
+    "gender": "여",
+    "hand": "오른손",
+    "racket": "요넥스",
+    "group": "B조",
+    "ntrp": 1.5
+  },
+  {
+    "name": "김정은",
+    "age_group": "30대",
+    "gender": "여",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "B조",
+    "ntrp": 1.5
+  },
+  {
+    "name": "김주현",
+    "age_group": "30대",
+    "gender": "여",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "A조",
+    "ntrp": 2.5
+  },
+  {
+    "name": "나혜영",
+    "age_group": "30대",
+    "gender": "여",
+    "hand": "왼손",
+    "racket": "윌슨",
+    "group": "B조",
+    "ntrp": 3.0
+  },
+  {
+    "name": "류미림",
+    "age_group": "30대",
+    "gender": "여",
+    "hand": "오른손",
+    "racket": "던롭",
+    "group": "B조",
+    "ntrp": 2.5
+  },
+  {
+    "name": "박대운",
+    "age_group": "40대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "B조",
+    "ntrp": 3.5
+  },
+  {
+    "name": "박진아",
+    "age_group": "30대",
+    "gender": "여",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "B조",
+    "ntrp": 2.5
+  },
+  {
+    "name": "박하린",
+    "age_group": "40대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "뵐클",
+    "group": "A조",
+    "ntrp": 2.5
+  },
+  {
+    "name": "배성균",
+    "age_group": "40대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "A조",
+    "ntrp": 3.0
+  },
+  {
+    "name": "송윤선",
+    "age_group": "30대",
+    "gender": "여",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "B조",
+    "ntrp": 2.0
+  },
+  {
+    "name": "송지예",
+    "age_group": "30대",
+    "gender": "여",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "B조",
+    "ntrp": 2.0
+  },
+  {
+    "name": "신동엽",
+    "age_group": "30대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "B조",
+    "ntrp": 1.5
+  },
+  {
+    "name": "안근우",
+    "age_group": "30대",
+    "gender": "남",
+    "hand": "왼손",
+    "racket": "윌슨",
+    "group": "A조",
+    "ntrp": 2.5
+  },
+  {
+    "name": "양동구",
+    "age_group": "40대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "B조",
+    "ntrp": 1.0
+  },
+  {
+    "name": "양정우",
+    "age_group": "40대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "B조",
+    "ntrp": 2.0
+  },
+  {
+    "name": "양진우",
+    "age_group": "40대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "A조",
+    "ntrp": 2.5
+  },
+  {
+    "name": "유대한",
+    "age_group": "30대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "바볼랏",
+    "group": "A조",
+    "ntrp": 3.0
+  },
+  {
+    "name": "이병각",
+    "age_group": "40대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "요넥스",
+    "group": "B조",
+    "ntrp": 2.5
+  },
+  {
+    "name": "이원형",
+    "age_group": "50대",
+    "gender": "남",
+    "hand": "왼손",
+    "racket": "윌슨",
+    "group": "A조",
+    "ntrp": 2.5
+  },
+  {
+    "name": "이진혁",
+    "age_group": "30대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "요넥스",
+    "group": "B조",
+    "ntrp": 2.0
+  },
+  {
+    "name": "이학수",
+    "age_group": "40대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "요넥스",
+    "group": "A조",
+    "ntrp": 3.5
+  },
+  {
+    "name": "이형규",
+    "age_group": "30대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "A조",
+    "ntrp": 2.0
+  },
+  {
+    "name": "전연숙",
+    "age_group": "30대",
+    "gender": "여",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "B조",
+    "ntrp": 2.5
+  },
+  {
+    "name": "전태영",
+    "age_group": "30대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "B조",
+    "ntrp": 2.0
+  },
+  {
+    "name": "정동민",
+    "age_group": "30대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "요넥스",
+    "group": "B조",
+    "ntrp": 2.0
+  },
+  {
+    "name": "정순혁",
+    "age_group": "20대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "요넥스",
+    "group": "B조",
+    "ntrp": 3.5
+  },
+  {
+    "name": "정유민",
+    "age_group": "30대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "A조",
+    "ntrp": 3.0
+  },
+  {
+    "name": "정진환",
+    "age_group": "30대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "바볼랏",
+    "group": "A조",
+    "ntrp": 2.0
+  },
+  {
+    "name": "차주현",
+    "age_group": "30대",
+    "gender": "여",
+    "hand": "오른손",
+    "racket": "바볼랏",
+    "group": "A조",
+    "ntrp": 3.0
+  },
+  {
+    "name": "차혜주",
+    "age_group": "40대",
+    "gender": "여",
+    "hand": "오른손",
+    "racket": "요넥스",
+    "group": "B조",
+    "ntrp": 2.0
+  },
+  {
+    "name": "허시완",
+    "age_group": "40대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "헤드",
+    "group": "B조",
+    "ntrp": 1.0
+  },
+  {
+    "name": "허양재",
+    "age_group": "40대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "요넥스",
+    "group": "B조",
+    "ntrp": 2.5
+  },
+  {
+    "name": "황규석",
+    "age_group": "40대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "A조",
+    "ntrp": 3.5
+  },
+  {
+    "name": "황예슬",
+    "age_group": "30대",
+    "gender": "여",
+    "hand": "오른손",
+    "racket": "윌슨",
+    "group": "A조",
+    "ntrp": 2.5
+  },
+  {
+    "name": "황태훈",
+    "age_group": "40대",
+    "gender": "남",
+    "hand": "오른손",
+    "racket": "요넥스",
+    "group": "B조",
+    "ntrp": 2.0
+  },
+  {
+    "name": "황혜진",
+    "age_group": "40대",
+    "gender": "여",
+    "hand": "오른손",
+    "racket": "요넥스",
+    "group": "B조",
+    "ntrp": 2.0
+  }
+]
