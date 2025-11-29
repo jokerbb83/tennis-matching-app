@@ -675,7 +675,66 @@ def render_score_summary_table(games, roster_by_name):
 # ---------------------------------------------------------
 # Streamlit 초기화
 # ---------------------------------------------------------
-st.set_page_config(page_title="테니스 매칭 도우미", layout="wide")
+st.set_page_config(
+    page_title="테니스 매칭 도우미",
+    layout="centered",             # wide → centered 로 변경 (폰에서 덜 퍼져 보이게)
+    initial_sidebar_state="collapsed",
+)
+
+# 🔽 모바일 폰에서 여백/폰트/탭 간격 줄이는 CSS
+MOBILE_CSS = """
+<style>
+/* 전체 패딩 줄이기 */
+.block-container {
+    padding-top: 0.8rem;
+    padding-bottom: 1.5rem;
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+}
+
+/* 작은 화면용 최적화 */
+@media (max-width: 768px) {
+
+    .block-container {
+        padding-left: 0.6rem;
+        padding-right: 0.6rem;
+    }
+
+    h1 {
+        font-size: 1.4rem;
+        margin-bottom: 0.7rem;
+    }
+
+    h2 {
+        font-size: 1.15rem;
+        margin-bottom: 0.5rem;
+    }
+
+    h3 {
+        font-size: 1.0rem;
+        margin-bottom: 0.4rem;
+    }
+
+    /* 탭 버튼들 한 줄에 너무 꽉 차지 않게 */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.15rem;
+        flex-wrap: wrap;
+    }
+    .stTabs [role="tab"] {
+        font-size: 0.8rem;
+        padding: 0.2rem 0.45rem;
+    }
+
+    /* 데이터프레임 스크롤 영역 조금 낮게 */
+    .stDataFrame {
+        font-size: 0.8rem;
+    }
+}
+</style>
+"""
+
+st.markdown(MOBILE_CSS, unsafe_allow_html=True)
+
 
 if "roster" not in st.session_state:
     st.session_state.roster = load_players()
@@ -702,6 +761,15 @@ sessions = st.session_state.sessions
 roster_by_name = {p["name"]: p for p in roster}
 
 st.title("🎾 테니스 매칭 도우미")
+
+# 📱 폰에서 볼 때 ON 해두면 A/B조 나란히 레이아웃을 세로로 바꿔줌
+mobile_mode = st.checkbox(
+    "📱 모바일 최적화 모드",
+    value=True,
+    help="핸드폰에서 볼 때는 켜 두는 걸 추천해!"
+)
+
+
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(
     ["🧾 선수 정보 관리", "🎾 오늘 경기 세션", "📋 경기 기록 / 통계", "👤 개인별 통계", "📆 월별 통계"]
@@ -1702,8 +1770,12 @@ with tab3:
         # ------------------------------
         has_AB_games = bool(games_A or games_B)
 
-        if view_mode_scores == "조별 보기 (A/B조)" and has_AB_games:
-            # 레이아웃: A조 | 세로선 | B조
+        # 🔽 PC + 조별 보기: A조 | 세로선 | B조 나란히
+        if (
+            view_mode_scores == "조별 보기 (A/B조)"
+            and has_AB_games
+            and not mobile_mode    # ← 모바일 모드에서는 이 레이아웃 안 씀
+        ):
             colA, colMid, colB = st.columns([1, 0.03, 1])
 
             with colA:
@@ -1729,10 +1801,21 @@ with tab3:
             if games_other:
                 st.markdown("---")
                 render_score_inputs_block("기타 경기 스코어", games_other)
+
         else:
-            # 🔥 전체 보기일 때: A/B 상관없이 전부 한 덩어리로
-            all_games = games_A + games_B + games_other
-            render_score_inputs_block("전체 경기 스코어", all_games)
+            # 🔽 모바일 모드에서 조별 보기인 경우 → A조, B조, 기타를 세로로 순서대로
+            if view_mode_scores == "조별 보기 (A/B조)" and has_AB_games and mobile_mode:
+                render_score_inputs_block("A조 경기 스코어", games_A)
+                render_score_inputs_block("B조 경기 스코어", games_B)
+                if games_other:
+                    st.markdown("---")
+                    render_score_inputs_block("기타 경기 스코어", games_other)
+            else:
+                # 🔥 전체 보기일 때: A/B 상관없이 전부 한 덩어리로
+                all_games = games_A + games_B + games_other
+                render_score_inputs_block("전체 경기 스코어", all_games)
+
+
 
         # 여기서부터는 섹션 3) 오늘 경기 삭제
         st.markdown("---")
