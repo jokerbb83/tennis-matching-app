@@ -3,8 +3,8 @@
     "name": "강상백",
     "age_group": "40대",
     "gender": "남",
-    "hand": "오른손",
-    "racket": "윌슨",
+    "hand": "왼손",
+    "racket": "헤드",
     "group": "B조",
     "ntrp": 2.5
   },
@@ -50,7 +50,7 @@
     "gender": "여",
     "hand": "오른손",
     "racket": "윌슨",
-    "group": "A조",
+    "group": "B조",
     "ntrp": 2.5
   },
   {
@@ -59,7 +59,7 @@
     "gender": "여",
     "hand": "왼손",
     "racket": "윌슨",
-    "group": "B조",
+    "group": "A조",
     "ntrp": 3.0
   },
   {
@@ -104,7 +104,7 @@
     "gender": "남",
     "hand": "오른손",
     "racket": "윌슨",
-    "group": "A조",
+    "group": "B조",
     "ntrp": 3.0
   },
   {
@@ -194,7 +194,7 @@
     "gender": "남",
     "hand": "왼손",
     "racket": "윌슨",
-    "group": "A조",
+    "group": "B조",
     "ntrp": 2.5
   },
   {
@@ -203,7 +203,7 @@
     "gender": "남",
     "hand": "오른손",
     "racket": "요넥스",
-    "group": "B조",
+    "group": "A조",
     "ntrp": 2.0
   },
   {
@@ -248,7 +248,7 @@
     "gender": "남",
     "hand": "오른손",
     "racket": "요넥스",
-    "group": "B조",
+    "group": "A조",
     "ntrp": 2.0
   },
   {
@@ -257,7 +257,7 @@
     "gender": "남",
     "hand": "오른손",
     "racket": "요넥스",
-    "group": "B조",
+    "group": "A조",
     "ntrp": 3.5
   },
   {
@@ -275,7 +275,7 @@
     "gender": "남",
     "hand": "오른손",
     "racket": "바볼랏",
-    "group": "A조",
+    "group": "B조",
     "ntrp": 2.0
   },
   {
