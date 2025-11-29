@@ -106,15 +106,15 @@ HANUL_AA_PATTERNS = {
         "12:34",
         "56:78",
         "9A:BC",
-        "15:26",
-        "39:4A",
-        "7B:8C",
-        "13:59",
-        "24:6A",
-        "7C:14",
-        "8B:23",
-        "67:9B",
-        "58:AC",
+        "37:48",
+        "29:5A",
+        "1B:6C",
+        "13:57",
+        "24:9B",
+        "68:AC",
+        "17:2B",
+        "35:6A",
+        "49:8C",
     ],
     13: [
         "12:34",
@@ -184,6 +184,7 @@ HANUL_AA_PATTERNS = {
     ],
 }
 
+
 def char_to_index(ch: str) -> int:
     """
     한울 AA 패턴 문자열에서 문자 하나를 인덱스로 변환
@@ -245,7 +246,6 @@ def build_hanul_aa_schedule(players, court_count):
     return schedule
 
 
-
 # ---------------------------------------------------------
 # 파일 입출력
 # ---------------------------------------------------------
@@ -279,6 +279,7 @@ def load_sessions():
 def save_sessions(sessions):
     save_json(SESSIONS_FILE, sessions)
 
+
 # ---------------------------------------------------------
 # 스타일 / 헬퍼
 # ---------------------------------------------------------
@@ -293,9 +294,9 @@ def colorize_df_names(df, roster_by_name, columns):
             return ""
         g = meta.get("gender")
         if g == "남":
-            return "background-color:#cce8ff"
+            return "background-color:#cce8ff;color:#111111"
         elif g == "여":
-            return "background-color:#ffd6d6"
+            return "background-color:#ffd6d6;color:#111111"
         return ""
 
     styler = df.style
@@ -317,16 +318,16 @@ def render_name_badge(name, roster_by_name):
         bg = "#eeeeee"
 
     return (
-        "<span style='"
+        "<span class='name-badge' style='"
         "background-color:{bg};"
         "padding:3px 8px;"
         "border-radius:6px;"
         "margin-right:4px;"
         "font-size:0.95rem;"
         "font-weight:600;"
+        "color:#111111;"
         "'>{name}</span>"
     ).format(bg=bg, name=name)
-
 
 
 def sync_side_select(sel_date, game_idx, player, partner):
@@ -360,6 +361,7 @@ def get_total_games_by_player(sessions):
         for p in g["t1"] + g["t2"]:
             counts[p] += 1
     return counts
+
 
 # ---------------------------------------------------------
 # 대진 생성
@@ -483,7 +485,6 @@ def build_doubles_schedule(players, max_games, court_count, mode,
     return schedule
 
 
-
 def build_singles_schedule(players, max_games, court_count, mode,
                            use_ntrp, group_only, roster_by_name):
     """
@@ -553,6 +554,7 @@ def build_singles_schedule(players, max_games, court_count, mode,
         schedule[i] = (gtype, t1, t2, court)
     return schedule
 
+
 # ---------------------------------------------------------
 # 경기 / 통계 유틸
 # ---------------------------------------------------------
@@ -575,6 +577,7 @@ def iter_games(sessions):
                 "score2": res.get("t2"),
                 "sides": res.get("sides", {}),
             }
+
 
 def classify_game_group(players, roster_by_name):
     """
@@ -630,7 +633,7 @@ def render_score_summary_table(games, roster_by_name):
     html.append("<thead><tr>")
     for col in header_cols:
         html.append(
-            f"<th style='border:1px solid #ddd;padding:4px;text-align:center;background-color:#f5f5f5;'>{col}</th>"
+            f"<th style='border:1px solid #ddd;padding:4px;text-align:center;background-color:#f5f5f5;color:#111111;'>{col}</th>"
         )
     html.append("</tr></thead><tbody>")
 
@@ -659,9 +662,9 @@ def render_score_summary_table(games, roster_by_name):
 
         html.append(
             "<tr>"
-            f"<td style='border:1px solid #ddd;padding:4px;text-align:center;'>{idx}</td>"
-            f"<td style='border:1px solid #ddd;padding:4px;text-align:center;'>{court}</td>"
-            f"<td style='border:1px solid #ddd;padding:4px;text-align:center;'>{gtype}</td>"
+            f"<td style='border:1px solid #ddd;padding:4px;text-align:center;color:#111111;'>{idx}</td>"
+            f"<td style='border:1px solid #ddd;padding:4px;text-align:center;color:#111111;'>{court}</td>"
+            f"<td style='border:1px solid #ddd;padding:4px;text-align:center;color:#111111;'>{gtype}</td>"
             f"<td style='border:1px solid #ddd;padding:4px;'>{t1_html}</td>"
             f"<td style='{s1_style}'>{'' if s1 is None else s1}</td>"
             f"<td style='{s2_style}'>{'' if s2 is None else s2}</td>"
@@ -672,6 +675,7 @@ def render_score_summary_table(games, roster_by_name):
     html.append("</tbody></table>")
     st.markdown("".join(html), unsafe_allow_html=True)
 
+
 # ---------------------------------------------------------
 # Streamlit 초기화
 # ---------------------------------------------------------
@@ -681,7 +685,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# 🔽 모바일 폰에서 여백/폰트/탭 간격 줄이는 CSS
+# 🔽 모바일 폰에서 여백/폰트/탭 간격 줄이는 CSS + 이름 뱃지 색상 고정
 MOBILE_CSS = """
 <style>
 /* 전체 패딩 줄이기 */
@@ -690,6 +694,12 @@ MOBILE_CSS = """
     padding-bottom: 1.5rem;
     padding-left: 0.9rem;
     padding-right: 0.9rem;
+}
+
+/* 이름 뱃지 기본 색상(다크모드에서도 검은 글씨 유지) */
+.name-badge {
+    color: #111111 !important;
+    white-space: nowrap;
 }
 
 /* 작은 화면용 최적화 */
@@ -729,12 +739,17 @@ MOBILE_CSS = """
     .stDataFrame {
         font-size: 0.8rem;
     }
+
+    /* 모바일에서 이름 뱃지 살짝 작게 */
+    .name-badge {
+        font-size: 0.8rem !important;
+        padding: 2px 6px !important;
+    }
 }
 </style>
 """
 
 st.markdown(MOBILE_CSS, unsafe_allow_html=True)
-
 
 if "roster" not in st.session_state:
     st.session_state.roster = load_players()
@@ -755,7 +770,6 @@ if "pending_delete" not in st.session_state:
 if "target_games" not in st.session_state:          # ← 이 줄 추가
     st.session_state.target_games = None
 
-
 roster = st.session_state.roster
 sessions = st.session_state.sessions
 roster_by_name = {p["name"]: p for p in roster}
@@ -768,8 +782,6 @@ mobile_mode = st.checkbox(
     value=True,
     help="핸드폰에서 볼 때는 켜 두는 걸 추천해!"
 )
-
-
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(
     ["🧾 선수 정보 관리", "🎾 오늘 경기 세션", "📋 경기 기록 / 통계", "👤 개인별 통계", "📆 월별 통계"]
@@ -1103,7 +1115,7 @@ with tab2:
     with cg2:
         if gtype == "복식" and is_aa_mode:
             court_count = st.number_input(
-                "사용 코트 수 (한울 AA 모드에서는 고정값)", 
+                "사용 코트 수 (한울 AA 모드에서는 고정값)",
                 min_value=1,
                 max_value=6,
                 value=2,
@@ -1341,8 +1353,6 @@ with tab2:
                     else:
                         st.success("대진표 생성 완료!")
 
-
-
     schedule = st.session_state.get("today_schedule", [])
 
     if schedule:
@@ -1409,9 +1419,6 @@ with tab2:
     else:
         st.info("생성된 대진표가 없습니다.")
 
-
-
-
     # 5. 개인당 경기 수 (레이아웃 변경)
     if schedule:
         st.markdown("---")
@@ -1454,10 +1461,6 @@ with tab2:
             save_sessions(sessions)
             st.success(f"{key} 날짜에 대진이 저장되었습니다.")
 
-
-
-
-
 # =========================================================
 # 3) 경기 기록 / 통계 (날짜별)
 # =========================================================
@@ -1467,7 +1470,7 @@ with tab3:
     # 👉 요기에서 '전체 / 조별 보기' 선택
     view_mode_scores = st.radio(
         "표시 방식",
-        ["조별 보기 (A/B조)","전체"],
+        ["조별 보기 (A/B조)", "전체"],
         horizontal=True,
         key="tab3_view_mode_scores",
     )
@@ -1501,7 +1504,6 @@ with tab3:
                     "t2_score": s2,
                 }
 
-
                 all_players = t1 + t2
                 grp_flag = classify_game_group(all_players, roster_by_name)
 
@@ -1511,7 +1513,6 @@ with tab3:
                     games_B.append(row)
                 else:
                     games_other.append(row)
-
 
             # ✨ 표시 방식에 따라 다르게 보여주기
             if view_mode_scores == "조별 보기 (A/B조)":
@@ -1544,7 +1545,6 @@ with tab3:
         games_A, games_B, games_other = [], [], []
         for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
 
-
             all_players = list(t1) + list(t2)
             grp_flag = classify_game_group(all_players, roster_by_name)
 
@@ -1554,7 +1554,6 @@ with tab3:
                 games_B.append((idx, gtype, t1, t2, court))
             else:
                 games_other.append((idx, gtype, t1, t2, court))
-
 
         # ------------------------------
         # A/B조별 스코어 입력 블록
@@ -1568,25 +1567,25 @@ with tab3:
             # 헤더 색상
             if "A조" in title:
                 color = "#ec4899"   # 핑크
-                bg    = "#fdf2f8"
+                bg = "#fdf2f8"
             elif "B조" in title:
                 color = "#3b82f6"   # 파랑
-                bg    = "#eff6ff"
+                bg = "#eff6ff"
             else:
                 color = "#6b7280"   # 회색
-                bg    = "#f3f4f6"
+                bg = "#f3f4f6"
 
             # 헤더 박스
             st.markdown(
                 f"""
                 <div style="
-                    margin-top: 1.5rem;
-                    padding: 0.6rem 0.8rem;
+                    margin-top: 1.2rem;
+                    padding: 0.5rem 0.8rem;
                     border-radius: 10px;
                     background-color: {bg};
                     border: 1px solid {color}33;
                 ">
-                    <span style="font-weight:700; font-size:1.05rem; color:{color};">
+                    <span style="font-weight:700; font-size:1.02rem; color:{color};">
                         {title}
                     </span>
                 </div>
@@ -1600,16 +1599,16 @@ with tab3:
                 # 제목 + 코트 정보 + 위쪽 구분선
                 st.markdown(
                     f"""
-                    <div style="
-                        margin-top:0.9rem;
-                        padding-top:0.6rem;
+                    <div class="score-game-title" style="
+                        margin-top:0.6rem;
+                        padding-top:0.4rem;
                         border-top:1px solid #e5e7eb;
-                        margin-bottom:0.25rem;
+                        margin-bottom:0.18rem;
                     ">
-                        <span style="font-weight:600; font-size:0.98rem;">
+                        <span style="font-weight:600; font-size:0.96rem;">
                             게임 {local_no}
                         </span>
-                        <span style="font-size:0.85rem; color:#6b7280; margin-left:6px;">
+                        <span style="font-size:0.82rem; color:#6b7280; margin-left:6px;">
                             ({gtype}{', 코트 ' + str(court) if court else ''})
                         </span>
                     </div>
@@ -1642,7 +1641,7 @@ with tab3:
                     )
                 with c3:
                     st.markdown(
-                        "<h4 style='text-align:center; margin-top:0.8rem;'>vs</h4>",
+                        "<div style='text-align:center; margin-top:0.55rem; font-weight:600;'>vs</div>",
                         unsafe_allow_html=True,
                     )
                 with c4:
@@ -1697,11 +1696,11 @@ with tab3:
                     side_b = opposite_side(side_a)
                     with side_cols[1]:
                         st.markdown(
-                            f"<div style='text-align:center;font-size:0.9rem;'>"
+                            f"<div style='text-align:center;font-size:0.88rem;'>"
                             f"<span style='font-weight:600;'>{b}</span><br>"
-                            f"<span style='display:inline-block;margin-top:0.2rem;"
-                            f"padding:0.15rem 0.6rem;border-radius:999px;"
-                            f"background:#f3f3f3;'>{side_b}</span>"
+                            f"<span style='display:inline-block;margin-top:0.15rem;"
+                            f"padding:0.08rem 0.55rem;border-radius:999px;"
+                            f"background:#f3f3f3;color:#111111;'>{side_b}</span>"
                             f"</div>",
                             unsafe_allow_html=True,
                         )
@@ -1721,11 +1720,11 @@ with tab3:
                     side_d = opposite_side(side_c)
                     with side_cols[3]:
                         st.markdown(
-                            f"<div style='text-align:center;font-size:0.9rem;'>"
+                            f"<div style='text-align:center;font-size:0.88rem;'>"
                             f"<span style='font-weight:600;'>{d}</span><br>"
-                            f"<span style='display:inline-block;margin-top:0.2rem;"
-                            f"padding:0.15rem 0.6rem;border-radius:999px;"
-                            f"background:#f3f3f3;'>{side_d}</span>"
+                            f"<span style='display:inline-block;margin-top:0.15rem;"
+                            f"padding:0.08rem 0.55rem;border-radius:999px;"
+                            f"background:#f3f3f3;color:#111111;'>{side_d}</span>"
                             f"</div>",
                             unsafe_allow_html=True,
                         )
@@ -1759,9 +1758,9 @@ with tab3:
                 # 결과 저장
                 results[str(idx)] = {"t1": s1, "t2": s2, "sides": sides}
 
-                # 각 게임 블록 아래 얇은 가로줄
+                # 각 게임 블록 아래 얇은 가로줄 (여백 줄임)
                 st.markdown(
-                    "<div style='border-bottom:1px dashed #e5e7eb; margin:0.6rem 0 0.2rem 0;'></div>",
+                    "<div style='border-bottom:1px dashed #e5e7eb; margin:0.35rem 0 0.1rem 0;'></div>",
                     unsafe_allow_html=True,
                 )
 
@@ -1815,8 +1814,6 @@ with tab3:
                 all_games = games_A + games_B + games_other
                 render_score_inputs_block("전체 경기 스코어", all_games)
 
-
-
         # 여기서부터는 섹션 3) 오늘 경기 삭제
         st.markdown("---")
         st.subheader("3. 오늘 경기 삭제")
@@ -1839,10 +1836,6 @@ with tab3:
                 if st.button("취소", key="confirm_delete_no"):
                     st.session_state.pending_delete = None
                     st.info("삭제가 취소되었습니다.")
-
-
-
-
 
 # =========================================================
 # 4) 개인별 통계
@@ -2156,8 +2149,6 @@ with tab5:
                     }
                 )
 
-
-
             rank_df = pd.DataFrame(rows).sort_values(
                 ["점수", "승률"], ascending=False
             ).reset_index(drop=True)  # 기존 인덱스 제거 후 0부터 새로 시작
@@ -2168,8 +2159,6 @@ with tab5:
             rank_df["승률"] = rank_df["승률"].map(lambda x: f"{x:.1f}%")
             sty_rank = colorize_df_names(rank_df, roster_by_name, ["이름"])
             st.dataframe(sty_rank, use_container_width=True)
-
-
 
             # 2. 월 전체 경기 요약 (일별 + 일별 스코어 표)
             st.subheader("2. 월 전체 경기 요약 (일별)")
