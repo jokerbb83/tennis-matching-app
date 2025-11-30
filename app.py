@@ -2741,6 +2741,7 @@ with tab3:
                     st.markdown(
                         f"""
                         <div style="
+                            color:#ffffff;
                             background:#fff9c4;
                             padding:16px 20px;
                             border-radius:12px;
