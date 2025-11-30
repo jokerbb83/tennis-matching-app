@@ -110,8 +110,53 @@ span[data-baseweb="typo"] {
     margin-top: 0 !important;
     padding-top: 0 !important;
 }
+
+
+/* ---------- [추가] 모바일에서 글자색을 확실히 진한색으로 통일 ---------- */
+
+/* 기본 텍스트들 */
+body,
+[data-testid="stAppViewContainer"],
+main.block-container,
+[data-testid="stMarkdownContainer"],
+p, span, li,
+h1, h2, h3, h4, h5, h6 {
+    color: #111827 !important;
+}
+
+/* 표 헤더/내용 글자 */
+[data-testid="stTable"] table thead tr th,
+[data-testid="stTable"] table tbody tr td {
+    color: #111827 !important;
+}
+
+/* 라디오 / 체크박스 / 셀렉트 레이블 */
+[data-testid="stRadio"] label,
+[data-testid="stCheckbox"] label,
+[data-testid="stSelectbox"] label,
+[data-testid="stMultiSelect"] label,
+[data-testid="stNumberInput"] label,
+[data-testid="stTextInput"] label {
+    color: #111827 !important;
+}
+
+/* 내가 만든 상단 탭 메뉴(경기 기록/통계, 월별 통계 등) 텍스트도 진하게 */
+.tabs-container span,
+.tabs-container p {
+    color: #111827 !important;
+}
+
+/* ---------- [추가] 위쪽 잘리는 현상 더 여유 있게 패딩 ---------- */
+main.block-container {
+    padding-top: 3.5rem !important;  /* 필요하면 4rem까지 늘려도 돼 */
+    margin-top: 0 !important;
+}
 </style>
 """, unsafe_allow_html=True)
+
+
+
+
 
 # ---------------------------------------------------------
 # 기본 상수
