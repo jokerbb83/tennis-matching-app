@@ -11,6 +11,43 @@ import plotly.express as px
 
 
 # ---------------------------------------------------------
+# UI 강제 라이트모드 CSS
+# ---------------------------------------------------------
+st.markdown("""
+<style>
+/* 전체 배경을 흰색으로 고정 */
+html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+}
+
+/* 카드, 컨테이너 배경도 강제 밝은색 */
+[class*="stAlert"], .stButton > button, .stSelectbox, .stTable, .stDataFrame {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+}
+
+/* 입력창, 라디오버튼, 드롭다운 모두 라이트 스타일 적용 */
+[data-baseweb="select"], .stRadio > label, .stTextInput > div > div {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+}
+
+/* 표 셀 기본 글자 색 */
+[data-testid="stTable"] td, [data-testid="stTable"] th {
+    color: #000000 !important;
+}
+
+/* 버튼 라벨 색 고정 */
+button, label, p, span, h1, h2, h3, h4, h5, h6 {
+    color: #000000 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+
+# ---------------------------------------------------------
 # 기본 상수
 # ---------------------------------------------------------
 PLAYERS_FILE = "players.json"
