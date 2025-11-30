@@ -11,17 +11,18 @@ import plotly.express as px
 
 st.set_page_config(layout="wide")
 
-
+# ---------- 라이트 모드 강제 스타일 ----------
 st.markdown("""
 <style>
-/* ---------- 기본 색상 값을 라이트 테마로 강제 ---------- */
+/* 기본 컬러 & 라이트 모드 고정 */
 :root {
-    --background-color: #ffffff !important;
-    --secondary-background-color: #ffffff !important;
-    --primary-background-color: #ffffff !important;
-    --text-color: #111827 !important;
-    --primary-text-color: #111827 !important;
-    --secondary-text-color: #4b5563 !important;
+    --background-color: #ffffff;
+    --secondary-background-color: #ffffff;
+    --primary-background-color: #ffffff;
+    --text-color: #111827;
+    --primary-text-color: #111827;
+    --secondary-text-color: #4b5563;
+    color-scheme: light;
 }
 
 /* 앱 전체 배경 & 글자색 */
@@ -30,25 +31,15 @@ html, body, [data-testid="stAppViewContainer"] {
     color: #111827 !important;
 }
 
-/* 메인 컨테이너 – 모바일에서 위가 잘리지 않게 */
+/* 메인 컨테이너 – 모바일 상단 잘림 방지 */
 main.block-container {
-    padding-top: 1.2rem !important;
+    padding-top: 3.5rem !important;
     margin-top: 0 !important;
 }
 
-/* 헤더도 흰색 */
-header[data-testid="stHeader"] {
-    background-color: #ffffff !important;
-}
-
-/* 사이드바도 혹시 대비해서 흰색 */
+/* 헤더 / 사이드바 */
+header[data-testid="stHeader"],
 section[data-testid="stSidebar"] {
-    background-color: #ffffff !important;
-    color: #111827 !important;
-}
-
-/* 표(월간 순위표 등) */
-[data-testid="stTable"] table {
     background-color: #ffffff !important;
     color: #111827 !important;
 }
@@ -65,75 +56,18 @@ input, textarea, select {
 [data-testid="stNumberInput"] > div > div:first-child,
 [data-testid="stTextInput"] > div > div,
 div[role="combobox"],
-div[role="spinbutton"] {
+div[role="spinbutton"],
+[data-baseweb="select"],
+[data-baseweb="input"] {
     background-color: #ffffff !important;
     color: #111827 !important;
     border: 1px solid #e5e7eb !important;
 }
 
 /* 드롭다운 펼친 리스트 */
-div[role="listbox"] {
-    background-color: #ffffff !important;
-    color: #111827 !important;
-}
-
-/* 슬라이더/버튼 같은 컨테이너 배경도 흰색으로 */
-[data-baseweb="select"],
-[data-baseweb="input"],
-[data-baseweb="checkbox"],
-[data-baseweb="radio"],
-[data-testid="stSlider"] {
-    background-color: #ffffff !important;
-    color: #111827 !important;
-}
-
-/* 체크박스/라디오 라벨 텍스트 */
-label[data-testid="stMarkdownContainer"],
-span[data-baseweb="typo"] {
-    color: #111827 !important;
-}
-
-/* 체크박스/라디오 주변 사각형 배경이 검게 안 나오게 */
-[data-testid="stCheckbox"] > label > div:first-child,
-[data-testid="stRadio"] > label > div:first-child {
-    background-color: #ffffff !important;
-}
-
-/* 숫자 입력 위/아래 +, - 버튼도 흰 배경 */
-[data-testid="stNumberInput"] button {
-    background-color: #ffffff !important;
-    color: #111827 !important;
-    border-color: #e5e7eb !important;
-}
-
-/* 혹시 남아 있을지 모르는 위쪽 마이너스 마진 제거 */
-[data-testid="stAppViewContainer"] {
-    margin-top: 0 !important;
-    padding-top: 0 !important;
-}
-
-
-
-st.markdown("""
-<style>
-
-/* 0. 브라우저에 '이 페이지는 라이트 모드야!' 라고 강제 선언 */
-:root {
-    color-scheme: light !important;
-}
-
-/* 1. 드롭다운(셀렉트박스) 본체 – 항상 흰 배경 + 검정 글씨 */
-[data-testid="stSelectbox"] > div,
-[data-testid="stSelectbox"] div[role="combobox"],
-[data-testid="stSelectbox"] div[data-baseweb="select"] {
-    background-color: #ffffff !important;
-    color: #111827 !important;
-    border-color: #e5e7eb !important;
-}
-
-/* 2. 드롭다운을 눌렀을 때 나오는 옵션 메뉴 배경 */
 [data-baseweb="popover"],
-[data-baseweb="menu"] {
+[data-baseweb="menu"],
+div[role="listbox"] {
     background-color: #ffffff !important;
     color: #111827 !important;
 }
@@ -147,58 +81,9 @@ st.markdown("""
     background-color: #f3f4f6 !important;
 }
 
-/* 3. st.table 표 – 배경 흰색, 글씨 진하게 */
-[data-testid="stTable"] table {
-    background-color: #ffffff !important;
-    color: #111827 !important;
-}
-[data-testid="stTable"] table thead tr th,
-[data-testid="stTable"] table tbody tr td {
-    background-color: #ffffff !important;
-    color: #111827 !important;
-}
-
-/* 4. st.dataframe 표 – 월간 선수 순위표가 이 타입일 가능성 큼 */
-[data-testid="stDataFrame"] div[role="grid"],
-[data-testid="stDataFrame"] div[role="row"],
-[data-testid="stDataFrame"] div[role="cell"],
-[data-testid="stDataFrame"] div[role="columnheader"] {
-    background-color: #ffffff !important;
-    color: #111827 !important;
-}
-
-/* 헤더 줄 강조 색만 살짝 회색 */
-[data-testid="stDataFrame"] div[role="columnheader"] {
-    background-color: #f3f4f6 !important;
-    font-weight: 600;
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-
-
-
-
-/* ---------- [추가] 모바일에서 글자색을 확실히 진한색으로 통일 ---------- */
-
-/* 기본 텍스트들 */
-body,
-[data-testid="stAppViewContainer"],
-main.block-container,
-[data-testid="stMarkdownContainer"],
-p, span, li,
-h1, h2, h3, h4, h5, h6 {
-    color: #111827 !important;
-}
-
-/* 표 헤더/내용 글자 */
-[data-testid="stTable"] table thead tr th,
-[data-testid="stTable"] table tbody tr td {
-    color: #111827 !important;
-}
-
-/* 라디오 / 체크박스 / 셀렉트 레이블 */
+/* 체크박스/라디오 라벨 텍스트 */
+label[data-testid="stMarkdownContainer"],
+span[data-baseweb="typo"],
 [data-testid="stRadio"] label,
 [data-testid="stCheckbox"] label,
 [data-testid="stSelectbox"] label,
@@ -208,21 +93,56 @@ h1, h2, h3, h4, h5, h6 {
     color: #111827 !important;
 }
 
-/* 내가 만든 상단 탭 메뉴(경기 기록/통계, 월별 통계 등) 텍스트도 진하게 */
+/* 체크박스/라디오 아이콘 주변 배경 */
+[data-testid="stCheckbox"] > label > div:first-child,
+[data-testid="stRadio"] > label > div:first-child {
+    background-color: #ffffff !important;
+}
+
+/* 숫자 입력 + / - 버튼 */
+[data-testid="stNumberInput"] button {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    border-color: #e5e7eb !important;
+}
+
+/* 표(st.table) */
+[data-testid="stTable"] table,
+[data-testid="stTable"] table thead tr th,
+[data-testid="stTable"] table tbody tr td {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+}
+
+/* 표(st.dataframe) – 월간 선수 순위표 같은 것 */
+[data-testid="stDataFrame"] div[role="grid"],
+[data-testid="stDataFrame"] div[role="row"],
+[data-testid="stDataFrame"] div[role="cell"],
+[data-testid="stDataFrame"] div[role="columnheader"] {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+}
+
+/* dataframe 헤더만 살짝 회색 */
+[data-testid="stDataFrame"] div[role="columnheader"] {
+    background-color: #f3f4f6 !important;
+    font-weight: 600;
+}
+
+/* 기본 텍스트들 색 통일 */
+[data-testid="stMarkdownContainer"],
+p, span, li,
+h1, h2, h3, h4, h5, h6 {
+    color: #111827 !important;
+}
+
+/* 내가 만든 상단 탭 메뉴 텍스트(있다면) */
 .tabs-container span,
 .tabs-container p {
     color: #111827 !important;
 }
-
-/* ---------- [추가] 위쪽 잘리는 현상 더 여유 있게 패딩 ---------- */
-main.block-container {
-    padding-top: 3.5rem !important;  /* 필요하면 4rem까지 늘려도 돼 */
-    margin-top: 0 !important;
-}
 </style>
 """, unsafe_allow_html=True)
-
-
 
 
 
