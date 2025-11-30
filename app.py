@@ -46,6 +46,39 @@ button, label, p, span, h1, h2, h3, h4, h5, h6 {
 """, unsafe_allow_html=True)
 
 
+st.markdown("""
+<style>
+/* 앱 전체 기본 색상 */
+html, body, [data-testid="stAppViewContainer"] {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+}
+
+/* 데이터프레임/테이블 배경/글자색 */
+[data-testid="stTable"] table {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+}
+
+/* selectbox / dropdown 배경 */
+div[role="combobox"] {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+}
+
+/* 드롭다운 안 리스트 */
+div[role="listbox"] {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+
+
+
+
 
 # ---------------------------------------------------------
 # 기본 상수
