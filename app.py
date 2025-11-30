@@ -9,76 +9,109 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 
-
-# ---------------------------------------------------------
-# UI 강제 라이트모드 CSS
-# ---------------------------------------------------------
-st.markdown("""
-<style>
-/* 전체 배경을 흰색으로 고정 */
-html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
-    background-color: #ffffff !important;
-    color: #000000 !important;
-}
-
-/* 카드, 컨테이너 배경도 강제 밝은색 */
-[class*="stAlert"], .stButton > button, .stSelectbox, .stTable, .stDataFrame {
-    background-color: #ffffff !important;
-    color: #000000 !important;
-}
-
-/* 입력창, 라디오버튼, 드롭다운 모두 라이트 스타일 적용 */
-[data-baseweb="select"], .stRadio > label, .stTextInput > div > div {
-    background-color: #ffffff !important;
-    color: #000000 !important;
-}
-
-/* 표 셀 기본 글자 색 */
-[data-testid="stTable"] td, [data-testid="stTable"] th {
-    color: #000000 !important;
-}
-
-/* 버튼 라벨 색 고정 */
-button, label, p, span, h1, h2, h3, h4, h5, h6 {
-    color: #000000 !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
+st.set_page_config(layout="wide")
 
 st.markdown("""
 <style>
-/* 앱 전체 기본 색상 */
+/* ---------- 기본 색상 값을 라이트 테마로 강제 ---------- */
+:root {
+    --background-color: #ffffff !important;
+    --secondary-background-color: #ffffff !important;
+    --primary-background-color: #ffffff !important;
+    --text-color: #111827 !important;
+    --primary-text-color: #111827 !important;
+    --secondary-text-color: #4b5563 !important;
+}
+
+/* 앱 전체 배경 & 글자색 */
 html, body, [data-testid="stAppViewContainer"] {
     background-color: #ffffff !important;
     color: #111827 !important;
 }
 
-/* 데이터프레임/테이블 배경/글자색 */
+/* 메인 컨테이너 – 모바일에서 위가 잘리지 않게 */
+main.block-container {
+    padding-top: 1.2rem !important;
+    margin-top: 0 !important;
+}
+
+/* 헤더도 흰색 */
+header[data-testid="stHeader"] {
+    background-color: #ffffff !important;
+}
+
+/* 사이드바도 혹시 대비해서 흰색 */
+section[data-testid="stSidebar"] {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+}
+
+/* 표(월간 순위표 등) */
 [data-testid="stTable"] table {
     background-color: #ffffff !important;
     color: #111827 !important;
 }
 
-/* selectbox / dropdown 배경 */
-div[role="combobox"] {
+/* 공통 입력 요소 - 텍스트/셀렉트/숫자 */
+input, textarea, select {
     background-color: #ffffff !important;
     color: #111827 !important;
 }
 
-/* 드롭다운 안 리스트 */
+/* Selectbox / Multiselect / NumberInput / TextInput 박스 */
+[data-testid="stSelectbox"] > div > div,
+[data-testid="stMultiSelect"] > div > div,
+[data-testid="stNumberInput"] > div > div:first-child,
+[data-testid="stTextInput"] > div > div,
+div[role="combobox"],
+div[role="spinbutton"] {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    border: 1px solid #e5e7eb !important;
+}
+
+/* 드롭다운 펼친 리스트 */
 div[role="listbox"] {
     background-color: #ffffff !important;
     color: #111827 !important;
 }
+
+/* 슬라이더/버튼 같은 컨테이너 배경도 흰색으로 */
+[data-baseweb="select"],
+[data-baseweb="input"],
+[data-baseweb="checkbox"],
+[data-baseweb="radio"],
+[data-testid="stSlider"] {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+}
+
+/* 체크박스/라디오 라벨 텍스트 */
+label[data-testid="stMarkdownContainer"],
+span[data-baseweb="typo"] {
+    color: #111827 !important;
+}
+
+/* 체크박스/라디오 주변 사각형 배경이 검게 안 나오게 */
+[data-testid="stCheckbox"] > label > div:first-child,
+[data-testid="stRadio"] > label > div:first-child {
+    background-color: #ffffff !important;
+}
+
+/* 숫자 입력 위/아래 +, - 버튼도 흰 배경 */
+[data-testid="stNumberInput"] button {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    border-color: #e5e7eb !important;
+}
+
+/* 혹시 남아 있을지 모르는 위쪽 마이너스 마진 제거 */
+[data-testid="stAppViewContainer"] {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+}
 </style>
 """, unsafe_allow_html=True)
-
-
-
-
-
-
 
 # ---------------------------------------------------------
 # 기본 상수
