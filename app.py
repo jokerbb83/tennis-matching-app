@@ -11,6 +11,7 @@ import plotly.express as px
 
 st.set_page_config(layout="wide")
 
+
 st.markdown("""
 <style>
 /* ---------- 기본 색상 값을 라이트 테마로 강제 ---------- */
@@ -110,6 +111,73 @@ span[data-baseweb="typo"] {
     margin-top: 0 !important;
     padding-top: 0 !important;
 }
+
+
+
+st.markdown("""
+<style>
+
+/* 0. 브라우저에 '이 페이지는 라이트 모드야!' 라고 강제 선언 */
+:root {
+    color-scheme: light !important;
+}
+
+/* 1. 드롭다운(셀렉트박스) 본체 – 항상 흰 배경 + 검정 글씨 */
+[data-testid="stSelectbox"] > div,
+[data-testid="stSelectbox"] div[role="combobox"],
+[data-testid="stSelectbox"] div[data-baseweb="select"] {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    border-color: #e5e7eb !important;
+}
+
+/* 2. 드롭다운을 눌렀을 때 나오는 옵션 메뉴 배경 */
+[data-baseweb="popover"],
+[data-baseweb="menu"] {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+}
+
+/* 옵션 하나하나 */
+[data-baseweb="menu"] ul li {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+}
+[data-baseweb="menu"] ul li:hover {
+    background-color: #f3f4f6 !important;
+}
+
+/* 3. st.table 표 – 배경 흰색, 글씨 진하게 */
+[data-testid="stTable"] table {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+}
+[data-testid="stTable"] table thead tr th,
+[data-testid="stTable"] table tbody tr td {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+}
+
+/* 4. st.dataframe 표 – 월간 선수 순위표가 이 타입일 가능성 큼 */
+[data-testid="stDataFrame"] div[role="grid"],
+[data-testid="stDataFrame"] div[role="row"],
+[data-testid="stDataFrame"] div[role="cell"],
+[data-testid="stDataFrame"] div[role="columnheader"] {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+}
+
+/* 헤더 줄 강조 색만 살짝 회색 */
+[data-testid="stDataFrame"] div[role="columnheader"] {
+    background-color: #f3f4f6 !important;
+    font-weight: 600;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+
+
 
 
 /* ---------- [추가] 모바일에서 글자색을 확실히 진한색으로 통일 ---------- */
