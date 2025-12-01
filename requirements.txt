@@ -1,4 +1,3 @@
 streamlit
-pan
-numpy
-plotly
+pandas
+plotly-express
