@@ -1294,44 +1294,7 @@ mobile_mode = st.checkbox(
     help="핸드폰에서 볼 때는 켜 두는 걸 추천해!"
 )
 
-DISABLE_SELECT_KEYBOARD_JS = """
-<script>
-(function() {
-  function patchSelectInputs() {
-    // Streamlit Selectbox 안쪽 input 모두 찾아서
-    var inputs = document.querySelectorAll('div[data-baseweb="select"] input');
 
-    inputs.forEach(function(inp) {
-      // 이미 처리한 건 다시 안 건드리게 플래그
-      if (inp.dataset.noKeyboard === "1") return;
-      inp.dataset.noKeyboard = "1";
-
-      // 키보드 입력 못 하게
-      inp.setAttribute("readonly", "readonly");
-      inp.setAttribute("inputmode", "none");
-      inp.setAttribute("autocomplete", "off");
-      inp.setAttribute("tabindex", "-1");
-      inp.style.caretColor = "transparent";
-
-      // 혹시 포커스가 잡혀도 바로 blur 시켜버리기
-      inp.addEventListener("focus", function(e) {
-        e.target.blur();
-      });
-    });
-  }
-
-  // 처음 로드 때 한 번 실행
-  document.addEventListener("DOMContentLoaded", patchSelectInputs);
-
-  // Streamlit이 리렌더링 하면서 DOM이 바뀔 때를 대비해서 관찰
-  var observer = new MutationObserver(function() {
-    patchSelectInputs();
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
-})();
-</script>
-"""
-st.markdown(DISABLE_SELECT_KEYBOARD_JS, unsafe_allow_html=True)
 
 
 
@@ -2830,21 +2793,7 @@ with tab4:
         if not names_sorted:
             st.info("선수가 없습니다.")
         else:
-            # 선수 선택 UI (모바일에선 키보드 안 뜨는 라디오 버튼 사용)
-            names_sorted = sorted(names)
-
-            if mobile_mode:
-                sel_player = st.radio(
-                    "선수 선택",
-                    names_sorted,
-                    key="sel_player_radio"
-                )
-            else:
-                sel_player = st.selectbox(
-                    "선수 선택",
-                    names_sorted,
-                    key="sel_player_select"
-                )
+            sel_player = st.selectbox("선수 선택", names_sorted, key="stat_player_select")
 
 
             # 🎾 오늘의 테니스 운세
