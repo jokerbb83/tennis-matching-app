@@ -2420,112 +2420,171 @@ with tab3:
                     sides = prev_sides.copy()
 
                     # 1) 복식(2:2) → 한 줄 UI
-                    if len(t1) == 2 and len(t2) == 2:
-                        a, b = t1
-                        c, d = t2
 
-                        # 이전 사이드값 정규화
-                        prev_norm = {
-                            p: normalize_side_label(prev_sides.get(p, SIDE_OPTIONS[0]))
-                            for p in [a, b, c, d]
-                        }
+                # 1) 복식(2:2) → 한 줄 UI (모바일에서도 한 줄)
+                if len(t1) == 2 and len(t2) == 2:
+                    a, b = t1
+                    c, d = t2
 
-                        # 팀1 기본 선택
-                        if prev_norm[a] == "포(듀스)":
-                            idx_t1 = 0
-                        elif prev_norm[b] == "포(듀스)":
-                            idx_t1 = 1
-                        else:
-                            idx_t1 = 0
+                    # 이전 사이드값 정규화
+                    prev_norm = {
+                        p: normalize_side_label(prev_sides.get(p, SIDE_OPTIONS[0]))
+                        for p in [a, b, c, d]
+                    }
 
-                        # 팀2 기본 선택
-                        if prev_norm[c] == "포(듀스)":
-                            idx_t2 = 0
-                        elif prev_norm[d] == "포(듀스)":
-                            idx_t2 = 1
-                        else:
-                            idx_t2 = 0
+                    # 팀1 기본 선택
+                    if prev_norm[a] == "포(듀스)":
+                        idx_t1 = 0
+                    elif prev_norm[b] == "포(듀스)":
+                        idx_t1 = 1
+                    else:
+                        idx_t1 = 0
 
-                        # 🔻 한 줄 score-row 컨테이너 시작
+                    # 팀2 기본 선택
+                    if prev_norm[c] == "포(듀스)":
+                        idx_t2 = 0
+                    elif prev_norm[d] == "포(듀스)":
+                        idx_t2 = 1
+                    else:
+                        idx_t2 = 0
+
+                    # 👉 한 줄 레이아웃
+                    col_t1, col_s1, col_vs, col_s2, col_t2 = st.columns(
+                        [2.8, 0.9, 0.4, 0.9, 2.8]
+                    )
+
+                    # ---- 왼쪽 팀 (라디오 + 이름) ----
+                    with col_t1:
                         st.markdown(
-                            f"<div class='score-row' id='score-row-{sel_date}-{idx}'>",
+                            render_name_pills(t1),
                             unsafe_allow_html=True,
                         )
-                        cols = st.columns([3, 1, 0.7, 1, 3])
+                        t1_dues = st.radio(
+                            "팀1 포(듀스) 사이드",
+                            [a, b],
+                            index=idx_t1,
+                            key=f"{sel_date}_side_radio_{idx}_t1",
+                            horizontal=True,
+                            label_visibility="collapsed",
+                        )
 
-                        with cols[0]:
-                            st.markdown(
-                                render_name_pills(t1),
-                                unsafe_allow_html=True,
-                            )
-                            t1_dues = st.radio(
-                                "팀1 포(듀스) 사이드",
-                                [a, b],
-                                index=idx_t1,
-                                key=f"{sel_date}_side_radio_{idx}_t1",
-                                horizontal=True,
-                                label_visibility="collapsed",
-                            )
+                    # ---- 왼쪽 점수 ----
+                    with col_s1:
+                        idx1 = get_index_or_default(score_options_local, prev_s1, 0)
+                        s1 = st.selectbox(
+                            "팀1 점수",
+                            score_options_local,
+                            index=idx1,
+                            key=f"{sel_date}_s1_{idx}",
+                            label_visibility="collapsed",
+                        )
 
-                        with cols[1]:
-                            idx1 = get_index_or_default(score_options_local, prev_s1, 0)
-                            s1 = st.selectbox(
-                                "팀1 점수",
-                                score_options_local,
-                                index=idx1,
-                                key=f"{sel_date}_s1_{idx}",
-                                label_visibility="collapsed",
-                            )
+                    # ---- VS ----
+                    with col_vs:
+                        st.markdown(
+                            """
+                            <div style="
+                                text-align:center;
+                                font-weight:600;
+                                font-size:0.8rem;
+                                line-height:1;
+                                margin-top:4px;
+                            ">VS</div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
 
-                        with cols[2]:
-                            st.markdown(
-                                """
-                                <div style="
-                                    text-align:center;
-                                    font-weight:600;
-                                    font-size:0.8rem;
-                                    line-height:1;
-                                    margin-top:2px;
-                                ">VS</div>
-                                """,
-                                unsafe_allow_html=True,
-                            )
+                    # ---- 오른쪽 점수 ----
+                    with col_s2:
+                        idx2 = get_index_or_default(score_options_local, prev_s2, 0)
+                        s2 = st.selectbox(
+                            "팀2 점수",
+                            score_options_local,
+                            index=idx2,
+                            key=f"{sel_date}_s2_{idx}",
+                            label_visibility="collapsed",
+                        )
 
-                        with cols[3]:
-                            idx2 = get_index_or_default(score_options_local, prev_s2, 0)
-                            s2 = st.selectbox(
-                                "팀2 점수",
-                                score_options_local,
-                                index=idx2,
-                                key=f"{sel_date}_s2_{idx}",
-                                label_visibility="collapsed",
-                            )
+                    # ---- 오른쪽 팀 (라디오 + 이름) ----
+                    with col_t2:
+                        st.markdown(
+                            "<div style='text-align:right;'>"
+                            + render_name_pills(t2)
+                            + "</div>",
+                            unsafe_allow_html=True,
+                        )
+                        t2_dues = st.radio(
+                            "팀2 포(듀스) 사이드",
+                            [c, d],
+                            index=idx_t2,
+                            key=f"{sel_date}_side_radio_{idx}_t2",
+                            horizontal=True,
+                            label_visibility="collapsed",
+                        )
 
-                        with cols[4]:
-                            st.markdown(
-                                "<div style='text-align:right;'>"
-                                + render_name_pills(t2)
-                                + "</div>",
-                                unsafe_allow_html=True,
-                            )
-                            t2_dues = st.radio(
-                                "팀2 포(듀스) 사이드",
-                                [c, d],
-                                index=idx_t2,
-                                key=f"{sel_date}_side_radio_{idx}_t2",
-                                horizontal=True,
-                                label_visibility="collapsed",
-                            )
+                    sides = {
+                        a: "포(듀스)" if t1_dues == a else "백(애드)",
+                        b: "포(듀스)" if t1_dues == b else "백(애드)",
+                        c: "포(듀스)" if t2_dues == c else "백(애드)",
+                        d: "포(듀스)" if t2_dues == d else "백(애드)",
+                    }
 
-                        st.markdown("</div>", unsafe_allow_html=True)
-                        # 🔺 score-row 끝
+                # 2) 단식 / 기타 (그냥 팀1 – 점수 – VS – 점수 – 팀2 한 줄)
+                else:
+                    col_t1, col_s1, col_vs, col_s2, col_t2 = st.columns(
+                        [3.0, 1.0, 0.5, 1.0, 3.0]
+                    )
 
-                        sides = {
-                            a: "포(듀스)" if t1_dues == a else "백(애드)",
-                            b: "포(듀스)" if t1_dues == b else "백(애드)",
-                            c: "포(듀스)" if t2_dues == c else "백(애드)",
-                            d: "포(듀스)" if t2_dues == d else "백(애드)",
-                        }
+                    with col_t1:
+                        st.markdown(
+                            render_name_pills(t1),
+                            unsafe_allow_html=True,
+                        )
+
+                    with col_s1:
+                        idx1 = get_index_or_default(score_options_local, prev_s1, 0)
+                        s1 = st.selectbox(
+                            "팀1 점수",
+                            score_options_local,
+                            index=idx1,
+                            key=f"{sel_date}_s1_{idx}",
+                            label_visibility="collapsed",
+                        )
+
+                    with col_vs:
+                        st.markdown(
+                            """
+                            <div style="
+                                text-align:center;
+                                font-weight:600;
+                                font-size:0.8rem;
+                                line-height:1;
+                                margin-top:4px;
+                            ">VS</div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                    with col_s2:
+                        idx2 = get_index_or_default(score_options_local, prev_s2, 0)
+                        s2 = st.selectbox(
+                            "팀2 점수",
+                            score_options_local,
+                            index=idx2,
+                            key=f"{sel_date}_s2_{idx}",
+                            label_visibility="collapsed",
+                        )
+
+                    with col_t2:
+                        st.markdown(
+                            "<div style='text-align:right;'>"
+                            + render_name_pills(t2)
+                            + "</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                    # 단식이면 사이드 정보는 None으로만 저장
+                    sides = {p: None for p in all_players}
 
                     # 2) 단식 / 기타
                     else:
