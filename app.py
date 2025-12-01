@@ -1086,7 +1086,7 @@ DISABLE_SELECTBOX_KEYBOARD = """
 <style>
 /* 📱 모바일에서 selectbox 터치 시 키보드 안 뜨게 */
 div[data-baseweb="select"] input {
-    pointer-events: none !important;
+    pointer-events: none !important;   /* 입력창 포커스 막기 */
 }
 </style>
 """
@@ -2782,10 +2782,14 @@ with tab4:
         st.info("저장된 기록이 없습니다.")
     else:
         names = [p["name"] for p in roster]
-        if not names:
+        # 🔤 이름 가나다 순 정렬
+        names_sorted = sorted(names, key=lambda x: x)
+
+        if not names_sorted:
             st.info("선수가 없습니다.")
         else:
-            sel_player = st.selectbox("선수 선택", names)
+            sel_player = st.selectbox("선수 선택", names_sorted, key="stat_player_select")
+
 
             # 🎾 오늘의 테니스 운세
             if sel_player:
