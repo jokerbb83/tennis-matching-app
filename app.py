@@ -1379,6 +1379,112 @@ with tab1:
     else:
         st.info("등록된 선수가 없습니다.")
 
+
+    # -----------------------------------------------------
+    # 2) 선수 통계 요약 + 분포 다이어그램
+    # -----------------------------------------------------
+    if roster:
+        st.markdown("---")
+        st.subheader("📊 선수 통계 요약")
+
+        total_players = len(roster)
+
+        # 카운트들 계산
+        age_counter = Counter(p.get("age_group", "비밀") for p in roster)
+        gender_counter = Counter(p.get("gender", "남") for p in roster)
+        hand_counter = Counter(p.get("hand", "오른손") for p in roster)
+        racket_counter = Counter(p.get("racket", "기타") for p in roster)
+        ntrp_counter = Counter(
+            "모름" if p.get("ntrp") is None else f"{p.get('ntrp'):.1f}"
+            for p in roster
+        )
+
+        # 텍스트 요약
+        st.markdown(f"- 전체 인원: **{total_players}명**")
+
+        # 나이대 예: 10대 2명 / 20대 3명 / ...
+        age_text = " / ".join(f"{k} {v}명" for k, v in age_counter.items())
+        st.markdown(f"- 나이대: {age_text}")
+
+        # 성별
+        st.markdown(
+            f"- 성별: 남자 {gender_counter.get('남', 0)}명, "
+            f"여자 {gender_counter.get('여', 0)}명"
+        )
+
+        # 주손
+        st.markdown(
+            f"- 주손: 오른손 {hand_counter.get('오른손', 0)}명, "
+            f"왼손 {hand_counter.get('왼손', 0)}명"
+        )
+
+        # 라켓 브랜드
+        racket_text = " / ".join(f"{k} {v}명" for k, v in racket_counter.items())
+        st.markdown(f"- 라켓 브랜드: {racket_text}")
+
+        # NTRP
+        ntrp_text = " / ".join(f"NTRP {k}: {v}명" for k, v in ntrp_counter.items())
+        st.markdown(f"- NTRP 분포: {ntrp_text}")
+
+
+        with st.expander("📈 항목별 분포 다이어그램 (각 항목 100% 기준) 🔽 아래로 내려보세요.", expanded=False):
+
+            # 🔧 필터 / 옵션 (슬라이더 + 어떤 항목 볼지 선택)
+            with st.expander("필터 / 옵션 열기", expanded=False):
+                min_count = st.slider(
+                    "표시할 최소 인원 수",
+                    min_value=0,
+                    max_value=total_players,
+                    value=1,
+                    help="이 값보다 적은 인원인 항목은 숨겨집니다.",
+                )
+
+                section_options = ["나이대", "성별", "주손", "라켓", "NTRP"]
+                selected_sections = st.multiselect(
+                    "보고 싶은 항목 선택",
+                    section_options,
+                    default=section_options,
+                )
+
+            # 어떤 분포를 쓸지 묶어두기
+            dist_items = []
+            if "나이대" in selected_sections:
+                dist_items.append(("나이대별 인원 분포", age_counter))
+            if "성별" in selected_sections:
+                dist_items.append(("성별 인원 분포", gender_counter))
+            if "주손" in selected_sections:
+                dist_items.append(("주손(오른손/왼손) 분포", hand_counter))
+            if "라켓" in selected_sections:
+                dist_items.append(("라켓 브랜드별 분포", racket_counter))
+            if "NTRP" in selected_sections:
+                dist_items.append(("NTRP 레벨별 분포", ntrp_counter))
+
+            # 📱 모바일 모드면 1열, PC면 2열씩 배치
+            if mobile_mode:
+                for title, counter in dist_items:
+                    render_distribution_section(
+                        title, counter, total_players, min_count
+                    )
+                    st.markdown("---")
+            else:
+                for i in range(0, len(dist_items), 2):
+                    col1, col2 = st.columns(2)
+                    title1, counter1 = dist_items[i]
+                    with col1:
+                        render_distribution_section(
+                            title1, counter1, total_players, min_count
+                        )
+
+                    if i + 1 < len(dist_items):
+                        title2, counter2 = dist_items[i + 1]
+                        with col2:
+                            render_distribution_section(
+                                title2, counter2, total_players, min_count
+                            )
+
+
+
+
     # -----------------------------------------------------
     # 1) 선수 정보 수정 / 삭제
     # -----------------------------------------------------
@@ -2744,7 +2850,6 @@ with tab3:
                         st.info("삭제를 취소했습니다.")
 
                 st.markdown("<br>", unsafe_allow_html=True)
-
             # =====================================================
             # 1. 현재 스코어 요약 (표) - 최신 results 기준으로 다시 그리기
             # =====================================================
@@ -2754,12 +2859,27 @@ with tab3:
                 if not schedule:
                     st.info("이 날짜에는 저장된 대진이 없습니다.")
                 else:
+                    # ▶ 요약 표 표시 방식 선택
+                    summary_view_mode = st.radio(
+                        "요약 보기 방식",
+                        ["대진별 보기", "개인별 보기"],
+                        horizontal=True,
+                        key="tab3_summary_view_mode",
+                    )
+
                     games_A_sum, games_B_sum, games_other_sum = [], [], []
                     day_groups_snapshot = day_data.get("groups_snapshot")
+
+                    # 개인별 집계용 dict
+                    per_player_all = defaultdict(list)     # 전체
+                    per_player_A = defaultdict(list)       # A조 경기만
+                    per_player_B = defaultdict(list)       # B조 경기만
+                    per_player_other = defaultdict(list)   # 기타 / 섞인 경기
 
                     for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
                         res = results.get(str(idx)) or results.get(idx) or {}
                         s1, s2 = res.get("t1"), res.get("t2")
+
                         row = {
                             "게임": idx,
                             "코트": court,
@@ -2777,6 +2897,7 @@ with tab3:
                             day_groups_snapshot,
                         )
 
+                        # ---- 대진별 요약용 ----
                         if grp_flag == "A":
                             games_A_sum.append(row)
                         elif grp_flag == "B":
@@ -2784,23 +2905,102 @@ with tab3:
                         else:
                             games_other_sum.append(row)
 
-                    if view_mode_scores == "조별 보기 (A/B조)":
-                        if games_A_sum:
-                            st.markdown("### A조 경기 요약")
-                            render_score_summary_table(games_A_sum, roster_by_name)
-                        if games_B_sum:
-                            st.markdown("### B조 경기 요약")
-                            render_score_summary_table(games_B_sum, roster_by_name)
-                        if games_other_sum:
-                            st.markdown("### 조가 섞인 경기 / 기타")
-                            render_score_summary_table(games_other_sum, roster_by_name)
+                        # ---- 개인별 요약용 ----
+                        # 점수가 없으면 빈칸
+                        if s1 is None or s2 is None:
+                            score_t1 = ""
+                            score_t2 = ""
+                        else:
+                            score_t1 = f"{s1} : {s2}"
+                            score_t2 = f"{s2} : {s1}"
+
+                        # 전체용
+                        for p in t1:
+                            per_player_all[p].append(score_t1)
+                        for p in t2:
+                            per_player_all[p].append(score_t2)
+
+                        # 조별용
+                        target_dict = per_player_other
+                        if grp_flag == "A":
+                            target_dict = per_player_A
+                        elif grp_flag == "B":
+                            target_dict = per_player_B
+
+                        for p in t1:
+                            target_dict[p].append(score_t1)
+                        for p in t2:
+                            target_dict[p].append(score_t2)
+
+                    # ---------------------------
+                    # 1) 대진별 보기
+                    # ---------------------------
+                    if summary_view_mode == "대진별 보기":
+                        if view_mode_scores == "조별 보기 (A/B조)":
+                            if games_A_sum:
+                                st.markdown("### A조 경기 요약")
+                                render_score_summary_table(games_A_sum, roster_by_name)
+                            if games_B_sum:
+                                st.markdown("### B조 경기 요약")
+                                render_score_summary_table(games_B_sum, roster_by_name)
+                            if games_other_sum:
+                                st.markdown("### 조가 섞인 경기 / 기타")
+                                render_score_summary_table(games_other_sum, roster_by_name)
+                        else:
+                            all_games_sum = games_A_sum + games_B_sum + games_other_sum
+                            render_score_summary_table(all_games_sum, roster_by_name)
+
+                    # ---------------------------
+                    # 2) 개인별 보기
+                    # ---------------------------
                     else:
-                        all_games_sum = games_A_sum + games_B_sum + games_other_sum
-                        render_score_summary_table(all_games_sum, roster_by_name)
+                        def render_player_score_table(title, per_dict):
+                            if not per_dict:
+                                return
+                            st.markdown(f"### {title}")
+
+                            players_sorted = sorted(per_dict.keys())
+                            rows = []
+                            for no, name in enumerate(players_sorted, start=1):
+                                games_list = per_dict[name]
+                                row = {
+                                    "번호": no,
+                                    "이름": name,
+                                    "1게임": games_list[0] if len(games_list) >= 1 else "",
+                                    "2게임": games_list[1] if len(games_list) >= 2 else "",
+                                    "3게임": games_list[2] if len(games_list) >= 3 else "",
+                                    "4게임": games_list[3] if len(games_list) >= 4 else "",
+                                }
+                                rows.append(row)
+
+                            df_players = pd.DataFrame(rows)
+                            df_players = df_players.set_index("번호")
+                            df_players.index.name = ""   # 인덱스 글자 숨기기
+
+                            sty_players = colorize_df_names(df_players, roster_by_name, ["이름"])
+                            st.dataframe(sty_players, use_container_width=True)
+
+                        # 조별 보기면 A/B/기타 따로
+                        if view_mode_scores == "조별 보기 (A/B조)":
+                            has_any = False
+                            if per_player_A:
+                                render_player_score_table("A조 개인별 스코어", per_player_A)
+                                has_any = True
+                            if per_player_B:
+                                render_player_score_table("B조 개인별 스코어", per_player_B)
+                                has_any = True
+                            if per_player_other:
+                                render_player_score_table("조가 섞인 경기 / 기타 개인별 스코어", per_player_other)
+                                has_any = True
+                            if not has_any:
+                                st.info("개인별로 표시할 스코어가 없습니다.")
+                        else:
+                            if not per_player_all:
+                                st.info("개인별로 표시할 스코어가 없습니다.")
+                            else:
+                                render_player_score_table("전체 개인별 스코어", per_player_all)
         else:
             st.info("이 날짜에는 저장된 대진이 없습니다.")
-
-
 
 # =========================================================
 # 4) 개인별 통계
@@ -3265,10 +3465,12 @@ with tab5:
                 else:
                     render_score_summary_table(rows_all, roster_by_name)
 
-
             # 3. 이 달의 BEST
             st.subheader("3. 이 달의 BEST (주손/라켓/연령대/성별)")
 
+            # --------------------------------
+            # 3-1. 카테고리별 BEST 함수
+            # --------------------------------
             def best_by_category(label, key_func):
                 stats = defaultdict(lambda: {"G": 0, "W": 0})
                 for d, idx, g in month_games:
@@ -3277,11 +3479,13 @@ with tab5:
                     r = calc_result(s1, s2)
                     if r is None:
                         continue
+
                     players_all = t1 + t2
                     for p in players_all:
                         meta = roster_by_name.get(p, {})
                         grp = key_func(meta)
                         stats[grp]["G"] += 1
+
                     if r == "W":
                         for p in t1:
                             meta = roster_by_name.get(p, {})
@@ -3292,6 +3496,7 @@ with tab5:
                             meta = roster_by_name.get(p, {})
                             grp = key_func(meta)
                             stats[grp]["W"] += 1
+
                 best_grp = None
                 best_rate = -1
                 for grp, v in stats.items():
@@ -3301,16 +3506,20 @@ with tab5:
                     if rate > best_rate:
                         best_rate = rate
                         best_grp = grp
+
                 if best_grp is None:
                     return f"{label}: 데이터 부족"
                 return f"{label}: {best_grp} (승률 {best_rate*100:.1f}%, 경기수 {stats[best_grp]['G']})"
 
-            st.write(best_by_category("주손", lambda m: m.get("hand", "오른손")))
-            st.write(best_by_category("라켓", lambda m: m.get("racket", "기타")))
-            st.write(best_by_category("연령대", lambda m: m.get("age_group", "비밀")))
-            st.write(best_by_category("성별", lambda m: m.get("gender", "남")))
+            best_hand = best_by_category("주손",   lambda m: m.get("hand", "오른손"))
+            best_racket = best_by_category("라켓", lambda m: m.get("racket", "기타"))
+            best_age = best_by_category("연령대",  lambda m: m.get("age_group", "비밀"))
+            best_gender = best_by_category("성별", lambda m: m.get("gender", "남"))
 
-            # ✅ 이 달 평균 득점-실점 격차 1등
+            # --------------------------------
+            # 3-2. 선수별 BEST 계산
+            # --------------------------------
+            # 🎯 노자비왕
             best_diff_player = None
             best_diff_value = None
             best_diff_for = 0.0
@@ -3330,15 +3539,16 @@ with tab5:
                     best_diff_against = avg_against
 
             if best_diff_player is not None:
-                st.write(
-                    f"🎯 **최고 득점 격차 선수**: {best_diff_player} "
-                    f"(평균 득점 {best_diff_for:.2f}, 평균 실점 {best_diff_against:.2f}, "
+                diff_line = (
+                    f"{best_diff_player} "
+                    f"(평균 득점 {best_diff_for:.2f}, "
+                    f"평균 실점 {best_diff_against:.2f}, "
                     f"격차 {best_diff_value:.2f})"
                 )
             else:
-                st.write("🎯 최고 득점 격차 선수: 데이터 부족")
+                diff_line = "데이터 부족"
 
-            # ✅ 가장 다양한 사람과 파트너가 된 사람
+            # 🤝 파트너왕
             most_partner_player = None
             most_partner_count = 0
             for name, partner_set in partners_by_player.items():
@@ -3348,10 +3558,110 @@ with tab5:
                     most_partner_player = name
 
             if most_partner_player is not None and most_partner_count > 0:
-                st.write(
-                    f"🤝 **가장 다양한 파트너와 경기한 선수**: {most_partner_player} "
-                    f"(파트너 수 {most_partner_count}명)"
-                )
+                partner_line = f"{most_partner_player} (만난 파트너 수 {most_partner_count}명)"
             else:
-                st.write("🤝 가장 다양한 파트너: 데이터 부족 (복식 경기 없음)")
+                partner_line = "데이터 부족 (복식 경기 없음)"
 
+            # 👑 출석왕 – '게임을 한 날짜 수' 기준 (공동 우승 처리)
+            attendance_dates = defaultdict(set)  # 선수별로 참석한 날짜 집합
+
+            for d, idx, g in month_games:
+                # 이 날짜에 뛴 선수들
+                players_in_day = set(g["t1"] + g["t2"])
+                for p in players_in_day:
+                    attendance_dates[p].add(d)
+
+            # 날짜 수로 변환
+            attendance_count = {p: len(days) for p, days in attendance_dates.items()}
+
+            if attendance_count:
+                max_days = max(attendance_count.values())
+                att_winners = [p for p, v in attendance_count.items() if v == max_days]
+
+                if len(att_winners) > 1:
+                    # 공동 출석왕
+                    attendance_line = f"{', '.join(att_winners)} (참석 {max_days}일)"
+                else:
+                    attendance_line = f"{att_winners[0]} (참석 {max_days}일)"
+            else:
+                attendance_line = "데이터 부족"
+
+
+            # 🥖 제빵왕 – 상대 팀을 0점으로 만든 경기 수 기준
+            baker_counter = Counter()
+            for d, idx, g in month_games:
+                t1, t2 = g["t1"], g["t2"]
+                s1, s2 = g["score1"], g["score2"]
+
+                # 점수가 아직 없거나 무효면 스킵
+                if s1 is None or s2 is None:
+                    continue
+
+                # 상대 점수가 0인 쪽에게 1점씩 부여
+                # 예) 6:0 이면 t1 선수들 +1, 0:4 이면 t2 선수들 +1
+                if s1 > 0 and s2 == 0:
+                    for p in t1:
+                        baker_counter[p] += 1
+                elif s2 > 0 and s1 == 0:
+                    for p in t2:
+                        baker_counter[p] += 1
+
+            if baker_counter:
+                baker_player, baker_count = max(
+                    baker_counter.items(), key=lambda x: x[1]
+                )
+                baker_line = f"{baker_player} (상대를 0점으로 이긴 경기 {baker_count}번)"
+            else:
+                baker_line = "데이터 부족"
+
+            # --------------------------------
+            # 3-3. 카드 UI로 출력 (세로 정렬)
+            # --------------------------------
+            # 카테고리별 BEST 카드
+            st.markdown(
+                f"""
+                <div style="
+                    margin-top:0.4rem;
+                    padding:0.9rem 1.1rem;
+                    border-radius:12px;
+                    background:#f9fafb;
+                    border:1px solid #e5e7eb;
+                    margin-bottom:0.7rem;
+                ">
+                    <div style="font-weight:700;font-size:0.98rem;margin-bottom:0.4rem;">
+                        📊 카테고리별 BEST
+                    </div>
+                    <ul style="padding-left:1.1rem;margin:0;font-size:0.9rem;">
+                        <li>주손&nbsp;:&nbsp;{best_hand}</li>
+                        <li>라켓&nbsp;:&nbsp;{best_racket}</li>
+                        <li>연령대&nbsp;:&nbsp;{best_age}</li>
+                        <li>성별&nbsp;:&nbsp;{best_gender}</li>
+                    </ul>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            # 선수별 BEST 카드
+            st.markdown(
+                f"""
+                <div style="
+                    margin-top:0.1rem;
+                    padding:0.9rem 1.1rem;
+                    border-radius:12px;
+                    background:#fefce8;
+                    border:1px solid #facc15;
+                ">
+                    <div style="font-weight:700;font-size:0.98rem;margin-bottom:0.4rem;">
+                        🏅 선수별 BEST
+                    </div>
+                    <ul style="padding-left:1.1rem;margin:0;font-size:0.9rem;">
+                        <li>🎯 노자비왕&nbsp;:&nbsp;{diff_line}</li>
+                        <li>🤝 우정왕&nbsp;:&nbsp;{partner_line}</li>
+                        <li>👑 출석왕&nbsp;:&nbsp;{attendance_line}</li>
+                        <li>🥖 제빵왕&nbsp;:&nbsp;{baker_line}</li>
+                    </ul>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
