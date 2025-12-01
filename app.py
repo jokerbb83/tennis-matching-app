@@ -1582,10 +1582,28 @@ with tab2:
     st.subheader("2. 참가자 선택")
     names_all = [p["name"] for p in roster]
 
-    # 이름 가나다순(ㄱㄴㄷ…) 정렬
-    names_sorted = sorted(names_all, key=lambda n: n)
+    play_counts = get_total_games_by_player(sessions)
+    names_sorted = sorted(
+        names_all, key=lambda n: (-play_counts.get(n, 0), n)
+    )
 
-    sel_players = st.multiselect("오늘 참가 선수들", names_sorted, default=[])
+    if mobile_mode:
+        st.markdown("오늘 참가 선수들")
+        sel_players = []
+        for name in names_sorted:
+            checked = st.checkbox(
+                name,
+                key=f"chk_part_{name}"
+            )
+            if checked:
+                sel_players.append(name)
+    else:
+        sel_players = st.multiselect(
+            "오늘 참가 선수들",
+            names_sorted,
+            default=[]
+        )
+
     st.write(f"현재 참가 인원: {len(sel_players)}명")
 
 
@@ -2830,7 +2848,21 @@ with tab4:
         if not names_sorted:
             st.info("선수가 없습니다.")
         else:
-            sel_player = st.selectbox("선수 선택", names_sorted, key="stat_player_select")
+            # 선수 선택 UI (모바일에선 키보드 안 뜨는 라디오 버튼 사용)
+            names_sorted = sorted(names)
+
+            if mobile_mode:
+                sel_player = st.radio(
+                    "선수 선택",
+                    names_sorted,
+                    key="sel_player_radio"
+                )
+            else:
+                sel_player = st.selectbox(
+                    "선수 선택",
+                    names_sorted,
+                    key="sel_player_select"
+                )
 
 
             # 🎾 오늘의 테니스 운세
