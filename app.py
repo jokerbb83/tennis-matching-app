@@ -1294,6 +1294,48 @@ mobile_mode = st.checkbox(
     help="핸드폰에서 볼 때는 켜 두는 걸 추천해!"
 )
 
+DISABLE_SELECT_KEYBOARD_JS = """
+<script>
+(function() {
+  function patchSelectInputs() {
+    // Streamlit Selectbox 안쪽 input 모두 찾아서
+    var inputs = document.querySelectorAll('div[data-baseweb="select"] input');
+
+    inputs.forEach(function(inp) {
+      // 이미 처리한 건 다시 안 건드리게 플래그
+      if (inp.dataset.noKeyboard === "1") return;
+      inp.dataset.noKeyboard = "1";
+
+      // 키보드 입력 못 하게
+      inp.setAttribute("readonly", "readonly");
+      inp.setAttribute("inputmode", "none");
+      inp.setAttribute("autocomplete", "off");
+      inp.setAttribute("tabindex", "-1");
+      inp.style.caretColor = "transparent";
+
+      // 혹시 포커스가 잡혀도 바로 blur 시켜버리기
+      inp.addEventListener("focus", function(e) {
+        e.target.blur();
+      });
+    });
+  }
+
+  // 처음 로드 때 한 번 실행
+  document.addEventListener("DOMContentLoaded", patchSelectInputs);
+
+  // Streamlit이 리렌더링 하면서 DOM이 바뀔 때를 대비해서 관찰
+  var observer = new MutationObserver(function() {
+    patchSelectInputs();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+})();
+</script>
+"""
+st.markdown(DISABLE_SELECT_KEYBOARD_JS, unsafe_allow_html=True)
+
+
+
+
 tab3, tab5, tab4, tab1, tab2 = st.tabs(
     ["📋 경기 기록 / 통계", "📆 월별 통계", "👤 개인별 통계", "🧾 선수 정보 관리", "🎾 오늘 경기 세션"]
 )
