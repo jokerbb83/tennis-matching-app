@@ -149,6 +149,8 @@ h1, h2, h3, h4, h5, h6 {
 
 
 
+
+
 # ---------------------------------------------------------
 # 기본 상수
 # ---------------------------------------------------------
@@ -1077,6 +1079,21 @@ st.set_page_config(
     layout="centered",             # wide → centered 로 변경 (폰에서 덜 퍼져 보이게)
     initial_sidebar_state="collapsed",
 )
+
+
+
+DISABLE_SELECTBOX_KEYBOARD = """
+<style>
+/* 📱 모바일에서 selectbox 터치 시 키보드 안 뜨게 */
+div[data-baseweb="select"] input {
+    pointer-events: none !important;
+}
+</style>
+"""
+st.markdown(DISABLE_SELECTBOX_KEYBOARD, unsafe_allow_html=True)
+
+
+
 
 MOBILE_LANDSCAPE = """
 <style>
