@@ -1295,6 +1295,45 @@ mobile_mode = st.checkbox(
 )
 
 
+MOBILE_SCORE_ROW_CSS = """
+<style>
+/* 모바일에서 점수/이름 줄을 한 줄로 고정 */
+@media (max-width: 768px) {
+
+    /* 한 게임(점수 줄) 컨테이너 */
+    .score-row {
+        display: flex;
+        flex-wrap: nowrap;
+        align-items: center;
+        gap: 0.25rem;
+        width: 100%;
+    }
+
+    /* score-row 안에 있는 각 column(이름, 점수, VS ...) */
+    .score-row [data-testid="column"] {
+        flex: 0 0 auto !important;      /* 줄 바꿈 방지 */
+        padding-left: 0.1rem !important;
+        padding-right: 0.1rem !important;
+    }
+
+    /* 드롭다운(점수) 사이즈 조금 줄이기 */
+    .score-row [data-baseweb="select"] {
+        min-width: 3.0rem;
+        font-size: 0.78rem;
+        min-height: 1.9rem;
+    }
+
+    /* 이름 배지 너무 크지 않게 */
+    .score-row .name-badge,
+    .score-row span {
+        font-size: 0.8rem;
+    }
+}
+</style>
+"""
+st.markdown(MOBILE_SCORE_ROW_CSS, unsafe_allow_html=True)
+
+
 
 
 
@@ -2189,21 +2228,11 @@ with tab3:
 
         # 🏟 코트 종류 선택 (인조잔디 / 하드 / 클레이)
         default_court = day_data.get("court_type", COURT_TYPES[0])
-
-
-
-
-
-
-
-
-        # 🏟 코트 종류 선택 (인조잔디 / 하드 / 클레이)
-        default_court = day_data.get("court_type", COURT_TYPES[0])
         default_idx = get_index_or_default(COURT_TYPES, default_court, 0)
 
         new_court = st.radio(
             "코트 종류",
-            COURT_TYPES,          # ["인조잔디", "하드", "클레이"]
+            COURT_TYPES,
             index=default_idx,
             horizontal=True,
         )
@@ -2220,12 +2249,12 @@ with tab3:
         if sel_date == "전체":
             view_mode_scores = "전체"
         else:
-# 👉 '전체 / 조별 보기' 선택
-#    - lock_view=True면 전체로 고정하고 라디오를 안 보여줌
+            # 👉 '전체 / 조별 보기' 선택
+            #    - lock_view=True면 전체로 고정하고 라디오를 안 보여줌
             if lock_view:
                 view_mode_scores = "전체"
             else:
-                # 날짜에 저장된 기본값(samed_view)에 맞춰 기본 선택 인덱스 정하기
+                # 날짜에 저장된 기본값(saved_view)에 맞춰 기본 선택 인덱스 정하기
                 if saved_view == "전체":
                     default_index = 1   # ["조별 보기 (A/B조)", "전체"] 중 "전체"
                 else:
@@ -2240,15 +2269,10 @@ with tab3:
                     index=default_index,
                 )
 
-
-
         # 나중에 다시 그리기 위한 요약 컨테이너
         summary_container = st.container()
 
         st.markdown("---")
-
-
-
 
         # -----------------------------
         # 2. 경기 스코어 입력
@@ -2281,12 +2305,8 @@ with tab3:
                 unsafe_allow_html=True,
             )
 
-
         if schedule:
             score_options = SCORE_OPTIONS
-
-
-
 
             # ------------------------------
             # 게임을 A조 / B조 / 기타로 분류
@@ -2308,10 +2328,6 @@ with tab3:
                     games_B.append((idx, gtype, t1, t2, court))
                 else:
                     games_other.append((idx, gtype, t1, t2, court))
-
-
-
-
 
             # ------------------------------
             # A/B조별 스코어 입력 블록
@@ -2363,15 +2379,12 @@ with tab3:
 
                 # 배지 모양 이름 줄
                 def render_name_pills(players):
-
                     html = " ".join(
-                        f"<span style='display:inline-block;padding:3px 10px;"
-                        "border-radius:999px;background:#e5f0ff;"
-                        "font-size:0.78rem;margin-right:4px;'>"
-                        f"{p}</span>"
+                        f"<span class='name-badge' style='display:inline-block;"
+                        f"padding:3px 10px;border-radius:999px;background:#e5f0ff;"
+                        f"font-size:0.78rem;margin-right:4px;'>{p}</span>"
                         for p in players
                     )
-
                     return html
 
                 score_options_local = SCORE_OPTIONS
@@ -2433,6 +2446,11 @@ with tab3:
                         else:
                             idx_t2 = 0
 
+                        # 🔻 한 줄 score-row 컨테이너 시작
+                        st.markdown(
+                            f"<div class='score-row' id='score-row-{sel_date}-{idx}'>",
+                            unsafe_allow_html=True,
+                        )
                         cols = st.columns([3, 1, 0.7, 1, 3])
 
                         with cols[0]:
@@ -2499,6 +2517,9 @@ with tab3:
                                 label_visibility="collapsed",
                             )
 
+                        st.markdown("</div>", unsafe_allow_html=True)
+                        # 🔺 score-row 끝
+
                         sides = {
                             a: "포(듀스)" if t1_dues == a else "백(애드)",
                             b: "포(듀스)" if t1_dues == b else "백(애드)",
@@ -2508,6 +2529,10 @@ with tab3:
 
                     # 2) 단식 / 기타
                     else:
+                        st.markdown(
+                            f"<div class='score-row' id='score-row-{sel_date}-{idx}'>",
+                            unsafe_allow_html=True,
+                        )
                         cols = st.columns([3, 1, 0.7, 1, 3])
 
                         with cols[0]:
@@ -2558,11 +2583,10 @@ with tab3:
                                 unsafe_allow_html=True,
                             )
 
+                        st.markdown("</div>", unsafe_allow_html=True)
+
                         # 단식이면 사이드 UI 없음 → 저장 구조만 유지
-                        sides = {
-                            p: None
-                            for p in all_players
-                        }
+                        sides = {p: None for p in all_players}
 
                     # 공통: 결과 저장
                     results[str(idx)] = {"t1": s1, "t2": s2, "sides": sides}
@@ -2605,8 +2629,6 @@ with tab3:
                 st.markdown("<div style='margin-top:0.5rem;'></div>", unsafe_allow_html=True)
                 st.divider()
 
-
-
                 if games_other:
                     render_score_inputs_block("기타 경기 스코어", games_other)
 
@@ -2620,9 +2642,6 @@ with tab3:
                     all_games = games_A + games_B + games_other
                     render_score_inputs_block("전체 경기 스코어", all_games)
 
-
-
-
             # 🔄 스코어 자동 저장
             day_data["results"] = results
             sessions[sel_date] = day_data
@@ -2634,7 +2653,6 @@ with tab3:
             # -----------------------------
             # ✅ 확인 박스를 표시할 위치(버튼 위)를 먼저 잡아둠
             confirm_container = st.container()
-
 
             # 1) 맨 아래에 올 큰 삭제 버튼
             st.markdown('<div class="main-danger-btn">', unsafe_allow_html=True)
@@ -2657,7 +2675,7 @@ with tab3:
                     st.markdown(
                         f"""
                         <div style="
-                            color:#ffffff;
+                            color:#1f2933;
                             background:#fff9c4;
                             padding:16px 20px;
                             border-radius:12px;
@@ -2674,25 +2692,28 @@ with tab3:
                     col_ok, col_cancel = st.columns(2)
 
                     with col_ok:
-                        st.markdown('<div class="main-danger-btn" style="margin-bottom:4px;">', unsafe_allow_html=True)
+                        st.markdown(
+                            '<div class="main-danger-btn" style="margin-bottom:4px;">',
+                            unsafe_allow_html=True,
+                        )
                         yes_clicked = st.button(
                             "네, 삭제합니다",
                             use_container_width=True,
                             key="delete_yes",
                         )
 
-
                     with col_cancel:
-                        st.markdown('<div class="main-danger-btn" style="margin-bottom:4px;">', unsafe_allow_html=True)
+                        st.markdown(
+                            '<div class="main-danger-btn" style="margin-bottom:4px;">',
+                            unsafe_allow_html=True,
+                        )
                         cancel_clicked = st.button(
                             "취소",
                             use_container_width=True,
                             key="delete_cancel",
                         )
 
-
                     st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
-
 
                     # 실제 삭제
                     if yes_clicked:
@@ -2721,9 +2742,6 @@ with tab3:
                 if not schedule:
                     st.info("이 날짜에는 저장된 대진이 없습니다.")
                 else:
-
-
-
                     games_A_sum, games_B_sum, games_other_sum = [], [], []
                     day_groups_snapshot = day_data.get("groups_snapshot")
 
@@ -2753,11 +2771,6 @@ with tab3:
                             games_B_sum.append(row)
                         else:
                             games_other_sum.append(row)
-
-
-
-
-
 
                     if view_mode_scores == "조별 보기 (A/B조)":
                         if games_A_sum:
