@@ -1582,27 +1582,11 @@ with tab2:
     st.subheader("2. 참가자 선택")
     names_all = [p["name"] for p in roster]
 
-    play_counts = get_total_games_by_player(sessions)
-    names_sorted = sorted(
-        names_all, key=lambda n: (-play_counts.get(n, 0), n)
-    )
+    # 이름 가나다순(ㄱㄴㄷ…) 정렬
+    names_sorted = sorted(names_all, key=lambda n: n)
 
-    if mobile_mode:
-        st.markdown("오늘 참가 선수들")
-        sel_players = []
-        for name in names_sorted:
-            checked = st.checkbox(
-                name,
-                key=f"chk_part_{name}"
-            )
-            if checked:
-                sel_players.append(name)
-    else:
-        sel_players = st.multiselect(
-            "오늘 참가 선수들",
-            names_sorted,
-            default=[]
-        )
+    sel_players = st.multiselect("오늘 참가 선수들", names_sorted, default=[])
+
 
     st.write(f"현재 참가 인원: {len(sel_players)}명")
 
