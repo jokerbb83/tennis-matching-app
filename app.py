@@ -9,7 +9,10 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 
-st.set_page_config(layout="wide")
+
+
+
+
 
 # ---------- 라이트 모드 강제 스타일 ----------
 st.markdown("""
@@ -1075,108 +1078,95 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ---------------------------------------------------------
-# 글로벌 스타일 (모바일 최적화)
-# ---------------------------------------------------------
-MOBILE_CSS = """
+MOBILE_LANDSCAPE = """
 <style>
-/* 전체 앱 패딩 줄이기 (모바일에서 여백 줄이기) */
-[data-testid="stAppViewContainer"] {
-    padding-top: 0.5rem;
-    padding-bottom: 3rem;
-}
 
-/* 메인 컨테이너 폭 조정 */
-.block-container {
-    padding-top: 0.8rem !important;
-    padding-left: 0.8rem !important;
-    padding-right: 0.8rem !important;
-}
+/* 📱 모바일 가로 화면 전용 */
+@media screen and (max-width: 768px) and (orientation: landscape) {
 
-/* 탭 아래쪽 여백 조금 */
-[data-baseweb="tab-list"] {
-    margin-bottom: 0.4rem;
-}
-
-/* 데이터프레임 테이블 글자 줄이기 */
-[data-testid="stDataFrame"] table {
-    font-size: 0.85rem;
-}
-
-/* 모바일 화면에서 폰트 + 여백 더 줄이기 */
-@media (max-width: 768px) {
+    /* 전체 컨테이너 여백 최소화 */
     .block-container {
-        padding-left: 0.6rem !important;
-        padding-right: 0.6rem !important;
+        padding-left: 0.35rem !important;
+        padding-right: 0.35rem !important;
+        padding-top: 0.4rem !important;
+        padding-bottom: 0.4rem !important;
     }
-    h1, h2, h3, h4 {
-        font-size: 0.95rem;
+
+    /* 제목 폰트 더 축소 */
+    h1 { font-size: 1.05rem !important; margin-bottom: 0.35rem !important; }
+    h2 { font-size: 0.95rem !important; }
+    h3, h4 { font-size: 0.85rem !important; }
+
+    /* 일반 텍스트 */
+    p, span, label, div {
+        font-size: 0.78rem !important;
     }
-    [data-testid="stMarkdown"] p {
-        font-size: 0.9rem;
+
+    /* Selectbox / TextInput 높이 줄이기 */
+    div[data-baseweb="select"] {
+        font-size: 0.78rem !important;
+        min-height: 1.65rem !important;
+        padding-top: 0.05rem !important;
+        padding-bottom: 0.05rem !important;
     }
-    button[kind="secondary"], button[kind="primary"] {
-        width: 100% !important;
-    }
-}
 
-
-</style>
-"""
-st.markdown(MOBILE_CSS, unsafe_allow_html=True)
-
-EXTRA_MOBILE_SCORE_CSS = """
-<style>
-/* 모바일에서 점수 드롭다운 / 라벨 더 작게 */
-@media (max-width: 768px) {
-
-    /* 점수 입력에 쓰는 Selectbox 라벨 글자 줄이기 */
+    /* 점수 Select 글씨 */
     div.stSelectbox > label {
-        font-size: 0.78rem;
-        margin-bottom: 0.05rem;
+        font-size: 0.72rem !important;
     }
 
-    /* Select 박스 자체 높이/폰트 줄이기 */
-    div.stSelectbox [data-baseweb="select"] {
-        font-size: 0.8rem;
-        min-height: 1.9rem;
-        padding-top: 0.05rem;
-        padding-bottom: 0.05rem;
+    /* 🔽 표 데이터프레임 폰트 & 패딩 축소 */
+    [data-testid="stDataFrame"] table {
+        font-size: 0.65rem !important;
     }
 
-    /* 점수 입력 열 전체 폰트도 살짝 줄이기 */
-    .stColumns {
-        font-size: 0.87rem;
+    [data-testid="stDataFrame"] table td,
+    [data-testid="stDataFrame"] table th {
+        padding: 2px 3px !important;
+    }
+
+    [data-testid="stDataFrame"] div[role="row"] {
+        min-height: 14px !important;
+    }
+
+    /* 버튼 */
+    div[data-testid="stButton"] > button {
+        font-size: 0.80rem !important;
+        padding-top: 0.50rem !important;
+        padding-bottom: 0.50rem !important;
+        margin-top: 0.2rem !important;
+        margin-bottom: 0.2rem !important;
+    }
+
+    /* 멀티셀렉트 박스 */
+    .stMultiSelect div[data-baseweb="tag"] {
+        font-size: 0.70rem !important;
+        padding: 1px 4px !important;
     }
 }
 </style>
 """
-st.markdown(EXTRA_MOBILE_SCORE_CSS, unsafe_allow_html=True)
+st.markdown(MOBILE_LANDSCAPE, unsafe_allow_html=True)
+
+
 
 BUTTON_CSS = """
 <style>
-/* 모든 st.button 공통 스타일 */
-div.stButton > button {
-    background: linear-gradient(135deg, #4f46e5, #6366f1) !important;
-    color: white !important;
-    font-weight: 700 !important;
-    font-size: 1.02rem !important;
-    border-radius: 999px !important;
+div[data-testid="stButton"] > button {
+    background-color: #5fcdb2 !important;  /* 보라 */
+    color: #ffffff !important;             /* 흰 글씨 */
+    font-weight: 600 !important;
     border: none !important;
-    padding-top: 0.7rem !important;
-    padding-bottom: 0.7rem !important;
-
+    border-radius: 10px !important;
+    padding: 10px 0 !important;
+    transition: all 0.12s ease-out;
 }
-
-/* hover 효과 */
-div.stButton > button:hover {
-    filter: brightness(1.08) !important;
+div[data-testid="stButton"] > button:hover {
+    filter: brightness(1.06) !important;
     transform: translateY(-1px);
 }
-
-/* 모바일에서 조금만 줄이기 */
 @media (max-width: 768px) {
-    div.stButton > button {
+    div[data-testid="stButton"] > button {
         font-size: 0.95rem !important;
         padding-top: 0.6rem !important;
         padding-bottom: 0.6rem !important;
@@ -1184,9 +1174,7 @@ div.stButton > button:hover {
 }
 </style>
 """
-
 st.markdown(BUTTON_CSS, unsafe_allow_html=True)
-
 
 
 
@@ -1293,15 +1281,13 @@ tab3, tab5, tab4, tab1, tab2 = st.tabs(
     ["📋 경기 기록 / 통계", "📆 월별 통계", "👤 개인별 통계", "🧾 선수 정보 관리", "🎾 오늘 경기 세션"]
 )
 
-# =========================================================
-# 1) 선수 정보 관리
-# =========================================================
 with tab1:
-    section_card("선수 정보 관리", "📋")
+    st.header("🧾 선수 정보 관리")
 
     # -----------------------------------------------------
-    # 1) 등록된 선수 목록
+    # 3) 등록된 선수 목록 (맨 위에 표)
     # -----------------------------------------------------
+    st.markdown("---")
     st.subheader("등록된 선수 목록")
 
     if roster:
@@ -1322,7 +1308,7 @@ with tab1:
             }
         )
         roster_by_name = {p["name"]: p for p in roster}
-        for grp in ["A조", "B조", "C조", "미배정"]:
+        for grp in ["A조", "B조", "미배정"]:
             sub = df_disp[df_disp["실력조"] == grp]
             if sub.empty:
                 continue
@@ -1333,129 +1319,161 @@ with tab1:
         st.info("등록된 선수가 없습니다.")
 
     # -----------------------------------------------------
-    # 2) 선수 통계 요약 + 분포 다이어그램
+    # 1) 선수 정보 수정 / 삭제
     # -----------------------------------------------------
-    if roster:
-        st.markdown("---")
-        st.subheader("📊 선수 통계 요약")
-
-        total_players = len(roster)
-
-        # 카운트들 계산
-        age_counter = Counter(p.get("age_group", "비밀") for p in roster)
-        gender_counter = Counter(p.get("gender", "남") for p in roster)
-        hand_counter = Counter(p.get("hand", "오른손") for p in roster)
-        racket_counter = Counter(p.get("racket", "기타") for p in roster)
-        ntrp_counter = Counter(
-            "모름" if p.get("ntrp") is None else f"{p.get('ntrp'):.1f}"
-            for p in roster
-        )
-
-        # 텍스트 요약
-        st.markdown(f"- 전체 인원: **{total_players}명**")
-
-        # 나이대 예: 10대 2명 / 20대 3명 / ...
-        age_text = " / ".join(f"{k} {v}명" for k, v in age_counter.items())
-        st.markdown(f"- 나이대: {age_text}")
-
-        # 성별
-        st.markdown(
-            f"- 성별: 남자 {gender_counter.get('남', 0)}명, "
-            f"여자 {gender_counter.get('여', 0)}명"
-        )
-
-        # 주손
-        st.markdown(
-            f"- 주손: 오른손 {hand_counter.get('오른손', 0)}명, "
-            f"왼손 {hand_counter.get('왼손', 0)}명"
-        )
-
-        # 라켓 브랜드
-        racket_text = " / ".join(f"{k} {v}명" for k, v in racket_counter.items())
-        st.markdown(f"- 라켓 브랜드: {racket_text}")
-
-        # NTRP
-        ntrp_text = " / ".join(f"NTRP {k}: {v}명" for k, v in ntrp_counter.items())
-        st.markdown(f"- NTRP 분포: {ntrp_text}")
-
-
-        with st.expander("📈 항목별 분포 다이어그램 (각 항목 100% 기준) 🔽 아래로 내려보세요.", expanded=False):
-
-            # 🔧 필터 / 옵션 (슬라이더 + 어떤 항목 볼지 선택)
-            with st.expander("필터 / 옵션 열기", expanded=False):
-                min_count = st.slider(
-                    "표시할 최소 인원 수",
-                    min_value=0,
-                    max_value=total_players,
-                    value=1,
-                    help="이 값보다 적은 인원인 항목은 숨겨집니다.",
-                )
-
-                section_options = ["나이대", "성별", "주손", "라켓", "NTRP"]
-                selected_sections = st.multiselect(
-                    "보고 싶은 항목 선택",
-                    section_options,
-                    default=section_options,
-                )
-
-            # 어떤 분포를 쓸지 묶어두기
-            dist_items = []
-            if "나이대" in selected_sections:
-                dist_items.append(("나이대별 인원 분포", age_counter))
-            if "성별" in selected_sections:
-                dist_items.append(("성별 인원 분포", gender_counter))
-            if "주손" in selected_sections:
-                dist_items.append(("주손(오른손/왼손) 분포", hand_counter))
-            if "라켓" in selected_sections:
-                dist_items.append(("라켓 브랜드별 분포", racket_counter))
-            if "NTRP" in selected_sections:
-                dist_items.append(("NTRP 레벨별 분포", ntrp_counter))
-
-            # 📱 모바일 모드면 1열, PC면 2열씩 배치
-            if mobile_mode:
-                for title, counter in dist_items:
-                    render_distribution_section(
-                        title, counter, total_players, min_count
-                    )
-                    st.markdown("---")
-            else:
-                for i in range(0, len(dist_items), 2):
-                    col1, col2 = st.columns(2)
-                    title1, counter1 = dist_items[i]
-                    with col1:
-                        render_distribution_section(
-                            title1, counter1, total_players, min_count
-                        )
-
-                    if i + 1 < len(dist_items):
-                        title2, counter2 = dist_items[i + 1]
-                        with col2:
-                            render_distribution_section(
-                                title2, counter2, total_players, min_count
-                            )
-
-    # ---------------------------------------------------------
-    # 3) 새 선수 추가
-    # ---------------------------------------------------------
     st.markdown("---")
-    subsection_badge("새 선수 추가", "➕")
+    st.subheader("선수 정보 수정 / 삭제")
 
-    with st.container():
+    names = sorted([p["name"] for p in roster], key=lambda x: x)
+    if names:
+        sel_edit = st.selectbox(
+            "수정할 선수 선택",
+            ["선택 안함"] + names
+        )
 
+        if sel_edit != "선택 안함":
+            player = next(p for p in roster if p["name"] == sel_edit)
+
+            c1, c2 = st.columns(2)
+            with c1:
+                e_name = st.text_input("이름 (수정)", value=player["name"])
+                e_age = st.selectbox(
+                    "나이대 (수정)",
+                    AGE_OPTIONS,
+                    index=get_index_or_default(
+                        AGE_OPTIONS, player.get("age_group", "비밀"), 0
+                    ),
+                )
+                e_racket = st.selectbox(
+                    "라켓 (수정)",
+                    RACKET_OPTIONS,
+                    index=get_index_or_default(
+                        RACKET_OPTIONS, player.get("racket", "기타"), 0
+                    ),
+                )
+                e_group = st.selectbox(
+                    "실력조 (수정)",
+                    GROUP_OPTIONS,
+                    index=get_index_or_default(
+                        GROUP_OPTIONS, player.get("group", "미배정"), 0
+                    ),
+                )
+            with c2:
+                e_gender = st.selectbox(
+                    "성별 (수정)",
+                    GENDER_OPTIONS,
+                    index=get_index_or_default(
+                        GENDER_OPTIONS, player.get("gender", "남"), 0
+                    ),
+                )
+                e_hand = st.selectbox(
+                    "주손 (수정)",
+                    HAND_OPTIONS,
+                    index=get_index_or_default(
+                        HAND_OPTIONS, player.get("hand", "오른손"), 0
+                    ),
+                )
+                cur_ntrp = player.get("ntrp")
+                cur_ntrp_str = "모름" if cur_ntrp is None else f"{cur_ntrp:.1f}"
+                e_ntrp_str = st.selectbox(
+                    "NTRP (수정)",
+                    NTRP_OPTIONS,
+                    index=get_index_or_default(NTRP_OPTIONS, cur_ntrp_str, 0),
+                )
+
+            cb1, cb2 = st.columns(2)
+
+
+
+            with cb1:
+                st.markdown('<div class="main-primary-btn">', unsafe_allow_html=True)
+                if st.button("수정 저장", use_container_width=True, key="btn_edit_save"):
+                    ntrp_val = None
+                    if e_ntrp_str != "모름":
+                        ntrp_val = float(e_ntrp_str)
+
+                    player.update(
+                        {
+                            "name": e_name.strip(),
+                            "age_group": e_age,
+                            "racket": e_racket,
+                            "group": e_group,
+                            "gender": e_gender,
+                            "hand": e_hand,
+                            "ntrp": ntrp_val,
+                        }
+                    )
+
+                    save_players(roster)
+                    st.session_state.roster = roster  # ← 메모리 즉시 반영
+                    st.success("선수 정보가 수정되었습니다!")
+
+                    st.rerun()  # ← 즉시 화면 재렌더링 (새로고침 없이 반영)
+
+                st.markdown("</div>", unsafe_allow_html=True)
+
+
+
+
+
+            if "pending_delete" not in st.session_state:
+                st.session_state.pending_delete = None
+
+            with cb2:
+                st.markdown('<div class="main-danger-btn">', unsafe_allow_html=True)
+                if st.button("🗑 이 선수 삭제", use_container_width=True, key="btn_edit_del"):
+                    st.session_state.pending_delete = sel_edit
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            if st.session_state.pending_delete:
+                st.markdown("---")
+                st.warning(
+                    f"⚠️ 정말 **{st.session_state.pending_delete}** 선수를 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다."
+                )
+
+                cc1, cc2 = st.columns(2)
+                with cc1:
+                    if st.button("❌ 취소", use_container_width=True, key="cancel_delete"):
+                        st.session_state.pending_delete = None
+
+                with cc2:
+                    if st.button("🗑 네, 삭제합니다", use_container_width=True, key="confirm_delete"):
+                        target = st.session_state.pending_delete
+                        st.session_state.roster = [
+                            p for p in roster if p["name"] != target
+                        ]
+                        roster = st.session_state.roster
+                        save_players(roster)
+                        st.session_state.pending_delete = None
+                        st.success(f"'{target}' 선수 삭제 완료! (새로고침 필요)")
+            # ---------------------------------------------------------------
+
+
+
+    else:
+        st.info("수정할 선수가 없습니다.")
+
+    # -----------------------------------------------------
+    # 2) 새 선수 추가 (기본은 접혀 있음)
+    # -----------------------------------------------------
+    st.markdown("---")
+    with st.expander("➕ 새 선수 추가", expanded=False):
         c1, c2 = st.columns(2)
-
         with c1:
-            new_name = st.text_input("이름")
-            new_age = st.selectbox("나이대", AGE_OPTIONS, index=0)
-            new_racket = st.selectbox("라켓", RACKET_OPTIONS, index=0)
-            new_group = st.selectbox("실력조 (A/B/C)", GROUP_OPTIONS, index=0)
-
+            new_name = st.text_input("이름", key="new_name")
+            new_age = st.selectbox("나이대", AGE_OPTIONS, index=0, key="new_age")
+            new_racket = st.selectbox("라켓", RACKET_OPTIONS, index=0, key="new_racket")
+            new_group = st.selectbox("실력조 (A/B/C)", GROUP_OPTIONS, index=0, key="new_group")
         with c2:
-            new_gender = st.selectbox("성별", GENDER_OPTIONS, index=0)
-            new_hand = st.selectbox("주로 쓰는 손", HAND_OPTIONS, index=0)
-            ntrp_str = st.selectbox("NTRP (실력)", NTRP_OPTIONS, index=0)
+            new_gender = st.selectbox("성별", GENDER_OPTIONS, index=0, key="new_gender")
+            new_hand = st.selectbox("주로 쓰는 손", HAND_OPTIONS, index=0, key="new_hand")
+            ntrp_str = st.selectbox("NTRP (실력)", NTRP_OPTIONS, index=0, key="new_ntrp")
 
-        if st.button("선수 추가", use_container_width=True):
+        st.markdown('<div class="main-primary-btn">', unsafe_allow_html=True)
+        add_clicked = st.button("선수 추가", use_container_width=True, key="btn_add_player")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        if add_clicked:
             if not new_name.strip():
                 st.error("이름을 입력해 주세요.")
             elif any(p["name"] == new_name for p in roster):
@@ -1464,7 +1482,6 @@ with tab1:
                 ntrp_val = None
                 if ntrp_str != "모름":
                     ntrp_val = float(ntrp_str)
-
                 player = {
                     "name": new_name.strip(),
                     "gender": new_gender,
@@ -1478,129 +1495,6 @@ with tab1:
                 st.session_state.roster = roster
                 save_players(roster)
                 st.success(f"'{new_name}' 선수 추가 완료!")
-
-
-
-
-    st.markdown("---")
-    subsection_badge("선수 정보 빠른 편집 (표에서 바로 수정)", "⚡")
-
-
-
-    if roster:
-        # 1) 원본 → DataFrame
-        df = pd.DataFrame(roster)
-
-        # 이름이 비어있거나 None인 행 제거
-        df = df[df["name"].notna()]
-        df = df[df["name"] != "None"]
-
-        # 2) 표시용 컬럼 만들기
-        df["NTRP표시"] = df["ntrp"].apply(
-            lambda v: "모름" if v is None else f"{v:.1f}"
-        )
-
-        # 이름 앞 성별 다이아몬드 표시 함수
-        def decorate_name(row):
-            name = row["name"] or ""
-            g = row.get("gender", "")
-            if g == "남":
-                return f"🔷 {name}"
-            elif g == "여":
-                return f"🔶 {name}"
-            return name
-
-        df["표시이름"] = df.apply(decorate_name, axis=1)
-
-        # 3) Editor에 보여줄 형식 재구성
-        edit_df = df[
-            ["표시이름", "age_group", "gender", "hand", "racket", "group", "NTRP표시"]
-        ].rename(
-            columns={
-                "표시이름": "이름",
-                "age_group": "나이대",
-                "gender": "성별",
-                "hand": "주손",
-                "racket": "라켓",
-                "group": "실력조",
-                "NTRP표시": "NTRP",
-            }
-        )
-
-        # 4) 데이터 에디터 (표에서 바로 수정)
-        edited_df = st.data_editor(
-            edit_df,
-            num_rows="dynamic",
-            use_container_width=True,
-            key="player_quick_edit",
-            column_config={
-                "나이대": st.column_config.SelectboxColumn(
-                    "나이대", options=AGE_OPTIONS
-                ),
-                "성별": st.column_config.SelectboxColumn(
-                    "성별", options=GENDER_OPTIONS
-                ),
-                "주손": st.column_config.SelectboxColumn(
-                    "주손", options=HAND_OPTIONS
-                ),
-                "라켓": st.column_config.SelectboxColumn(
-                    "라켓", options=RACKET_OPTIONS
-                ),
-                "실력조": st.column_config.SelectboxColumn(
-                    "실력조", options=GROUP_OPTIONS
-                ),
-                "NTRP": st.column_config.SelectboxColumn(
-                    "NTRP", options=NTRP_OPTIONS
-                ),
-            },
-        )
-
-        # 5) 수정된 내용 바로 저장
-        new_roster = []
-        for _, row in edited_df.iterrows():
-            raw_name = str(row.get("이름", "")).strip()
-
-            if not raw_name or raw_name == "None":
-                continue
-
-            clean_name = (
-                raw_name.replace("🔷", "")
-                .replace("🔶", "")
-                .strip()
-            )
-            if not clean_name:
-                continue
-
-            # NTRP 변환
-            ntrp_str = str(row.get("NTRP", "")).strip()
-            ntrp_val = None
-            if ntrp_str and ntrp_str != "모름":
-                try:
-                    ntrp_val = float(ntrp_str)
-                except ValueError:
-                    ntrp_val = None
-
-            player = {
-                "name": clean_name,
-                "age_group": row.get("나이대", "비밀"),
-                "gender": row.get("성별", "남"),
-                "hand": row.get("주손", "오른손"),
-                "racket": row.get("라켓", "기타"),
-                "group": row.get("실력조", "미배정"),
-                "ntrp": ntrp_val,
-            }
-            new_roster.append(player)
-
-        # 6) 변경 시 자동 저장
-        if new_roster != roster:
-            roster = new_roster
-            st.session_state.roster = roster
-            save_players(roster)
-            st.toast("선수 정보가 자동 저장되었습니다 💾", icon="💎")
-
-    else:
-        st.info("등록된 선수가 없습니다.")
-
 
 
 
@@ -1628,13 +1522,13 @@ with tab2:
     # ---------------------------------------------------------
     st.subheader("2. 참가자 선택")
     names_all = [p["name"] for p in roster]
-    play_counts = get_total_games_by_player(sessions)
-    names_sorted = sorted(
-        names_all, key=lambda n: (-play_counts.get(n, 0), n)
-    )
+
+    # 이름 가나다순(ㄱㄴㄷ…) 정렬
+    names_sorted = sorted(names_all, key=lambda n: n)
 
     sel_players = st.multiselect("오늘 참가 선수들", names_sorted, default=[])
     st.write(f"현재 참가 인원: {len(sel_players)}명")
+
 
     # 순서 초기화
     if sel_players and (
@@ -1808,12 +1702,12 @@ with tab2:
     with opt2:
         if gtype == "복식" and is_aa_mode:
             group_only_option = st.checkbox(
-                "조별로만 매칭 (A/B조만, C조 제외)",
+                "조별로만 매칭 (A/B조만)",
                 value=False,
                 disabled=True,
             )
         else:
-            group_only_option = st.checkbox("조별로만 매칭 (A/B조만, C조 제외)")
+            group_only_option = st.checkbox("조별로만 매칭 (A/B조만)")
 
     # 조별 분리 보기면 자동으로 조별 매칭 적용
     view_mode_for_schedule = st.session_state.get("order_view_mode", "전체")
