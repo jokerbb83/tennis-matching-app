@@ -1586,8 +1586,6 @@ with tab2:
     names_sorted = sorted(names_all, key=lambda n: n)
 
     sel_players = st.multiselect("오늘 참가 선수들", names_sorted, default=[])
-
-
     st.write(f"현재 참가 인원: {len(sel_players)}명")
 
 
