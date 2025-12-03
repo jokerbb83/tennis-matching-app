@@ -157,8 +157,8 @@ h1, h2, h3, h4, h5, h6 {
 PLAYERS_FILE = "players.json"
 SESSIONS_FILE = "sessions.json"
 
-AGE_OPTIONS = ["비밀", "10대", "20대", "30대", "40대", "50대", "60대", "70대"]
-RACKET_OPTIONS = ["기타", "윌슨", "요넥스", "헤드", "바볼랏", "던롭", "뵐클", "테크니파이버", "프린스"]
+AGE_OPTIONS = ["비밀", "20대", "30대", "40대", "50대", "60대", "70대"]
+RACKET_OPTIONS = ["모름", "기타", "윌슨", "요넥스", "헤드", "바볼랏", "던롭", "뵐클", "테크니파이버", "프린스"]
 GENDER_OPTIONS = ["남", "여"]
 HAND_OPTIONS = ["오른손", "왼손"]
 GROUP_OPTIONS = ["미배정", "A조", "B조"]
@@ -166,6 +166,15 @@ NTRP_OPTIONS = ["모름"] + [f"{x/2:.1f}" for x in range(2, 15)]  # 1.0~7.0
 COURT_TYPES = ["인조잔디", "하드", "클레이"]
 SIDE_OPTIONS = ["포(듀스)", "백(애드)"]
 SCORE_OPTIONS = list(range(0, 7))
+MBTI_OPTIONS = [
+    "모름",
+    "ISTJ", "ISFJ", "INFJ",
+    "ISTP", "ISFP", "INFP", "INTP",
+    "ESTP", "ESFP", "ENFP", "ENTP",
+    "ESTJ", "ESFJ", "ENFJ", "ENTJ",
+]
+
+
 
 WIN_POINT = 3
 DRAW_POINT = 1
@@ -477,22 +486,24 @@ def render_distribution_section(title, counter_dict, total_count, min_count):
     """
     카테고리별 인원/비율 + 도넛 파이 차트
     - min_count 보다 적은 인원인 항목은 숨김
+    - 도넛 라벨: 'ENFP 6명 (23.1%)' 형식 (A 타입)
     """
     if not counter_dict or total_count == 0:
         return
 
-    # Counter → DataFrame
     rows = []
     for key, cnt in counter_dict.items():
         label = key if key not in [None, ""] else "미입력"
         if cnt < min_count:
             continue
         pct = (cnt / total_count) * 100
+        display_label = f"{label} {cnt}명 ({pct:.1f}%)"
         rows.append(
             {
                 "항목": label,
                 "인원": cnt,
                 "비율(%)": pct,
+                "표기": display_label,
             }
         )
 
@@ -502,23 +513,22 @@ def render_distribution_section(title, counter_dict, total_count, min_count):
 
     df = pd.DataFrame(rows).sort_values("인원", ascending=False).reset_index(drop=True)
 
-    # 표 (비율은 보기 좋게 문자열로)
-    df_display = df.copy()
+    # 표
+    df_display = df[["항목", "인원", "비율(%)"]].copy()
     df_display["비율(%)"] = df_display["비율(%)"].map(lambda x: f"{x:.1f}%")
     st.markdown(f"**{title}**")
     st.dataframe(df_display, use_container_width=True, hide_index=True)
 
-    # 🍩 도넛 파이 차트 (각 항목 100% 안에서)
+    # 🍩 도넛 파이 차트
     fig = px.pie(
         df,
-        names="항목",
+        names="표기",      # ← 'ENFP 6명 (23.1%)' 같은 문구
         values="인원",
-        hole=0.4,   # ← 도넛 모양
+        hole=0.4,
     )
-    # 라벨을 조각 안쪽에: 항목명 + % 표시
     fig.update_traces(
         textposition="inside",
-        texttemplate="%{label}<br>%{percent:.1%}",
+        texttemplate="%{label}",   # 이미 라벨 안에 인원+퍼센트 포함
     )
     fig.update_layout(
         margin=dict(t=10, b=10, l=10, r=10),
@@ -843,7 +853,7 @@ def get_daily_fortune(sel_player):
 
     ]
 
-    chosung = list("ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅎ")
+    chosung = list("ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅎ")
     rackets = ["윌슨", "요넥스", "헤드", "바볼랏", "던롭", "뵐클", "테크니파이버", "프린스"]
     ages = ["20대", "30대", "40대", "50대"]
     hands = ["오른손", "왼손"]
@@ -868,25 +878,38 @@ def get_daily_fortune(sel_player):
 # 경기 / 통계 유틸
 # ---------------------------------------------------------
 def iter_games(sessions):
-    """전체 세션에서 (날짜, 인덱스, 게임 dict) yield"""
-    for d, data in sessions.items():
-        schedule = data.get("schedule", [])
-        results = data.get("results", {})
-        court_type = data.get("court_type", COURT_TYPES[0])
-        for idx, g in enumerate(schedule, start=1):
-            gtype, t1, t2, court = g
+    """
+    sessions: {
+        'YYYY-MM-DD': {
+            'schedule': [(gtype, t1, t2, court), ...],
+            'results': { '1': {'t1': 점수, 't2': 점수, 'sides': {...}}, ... },
+            'court_type': '인조잔디' ...
+        },
+        ...
+    }
+    """
+    for d, day_data in sessions.items():
+        schedule = day_data.get("schedule", [])
+        results = day_data.get("results", {})
+        court_type = day_data.get("court_type", COURT_TYPES[0])
+
+        for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
             res = results.get(str(idx)) or results.get(idx) or {}
+
+            s1 = res.get("t1")
+            s2 = res.get("t2")
+            sides = res.get("sides", {}) or {}
+
             yield d, idx, {
                 "type": gtype,
                 "t1": t1,
                 "t2": t2,
                 "court": court,
+                "score1": s1,
+                "score2": s2,
                 "court_type": court_type,
-                "score1": res.get("t1"),
-                "score2": res.get("t2"),
-                "sides": res.get("sides", {}),
+                "sides": sides,
             }
-
 
 
 
@@ -1260,6 +1283,21 @@ MOBILE_CSS = """
 </style>
 """
 
+st.markdown("""
+<style>
+.mbti-tag {
+    display:inline-block;
+    background:#f4e8ff;     /* 파스텔 보라 */
+    color:#6d28d9;          /* 진한 보라 텍스트 */
+    border-radius:8px;
+    padding:2px 7px;
+    font-size:0.73rem;
+    font-weight:600;
+    margin-left:4px;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.markdown(MOBILE_CSS, unsafe_allow_html=True)
 
 if "roster" not in st.session_state:
@@ -1334,10 +1372,6 @@ MOBILE_SCORE_ROW_CSS = """
 st.markdown(MOBILE_SCORE_ROW_CSS, unsafe_allow_html=True)
 
 
-
-
-
-
 tab3, tab5, tab4, tab1, tab2 = st.tabs(
     ["📋 경기 기록 / 통계", "📆 월별 통계", "👤 개인별 통계", "🧾 선수 정보 관리", "🎾 오늘 경기 세션"]
 )
@@ -1354,9 +1388,19 @@ with tab1:
     if roster:
         df = pd.DataFrame(roster)
         df_disp = df.copy()
-        df_disp["NTRP"] = df_disp["ntrp"].apply(
-            lambda v: "-" if v is None else f"{v:.1f}"
-        )
+
+        # ✅ NTRP 표시용 컬럼: None / NaN 은 전부 "모름"으로
+        def format_ntrp(v):
+            import pandas as pd
+            if v is None or pd.isna(v):
+                return "모름"
+            try:
+                return f"{float(v):.1f}"
+            except Exception:
+                return "모름"
+
+        df_disp["NTRP"] = df_disp["ntrp"].apply(format_ntrp)
+
         df_disp = df_disp.drop(columns=["ntrp"])
         df_disp = df_disp.rename(
             columns={
@@ -1366,6 +1410,8 @@ with tab1:
                 "age_group": "나이대",
                 "racket": "라켓",
                 "group": "실력조",
+                # 필요하면 여기서 MBTI도 같이 보여줄 수 있어:
+                # "mbti": "MBTI",
             }
         )
         roster_by_name = {p["name"]: p for p in roster}
@@ -1399,6 +1445,15 @@ with tab1:
             for p in roster
         )
 
+        # MBTI
+        mbti_counter_raw = Counter(p.get("mbti", "모름") for p in roster)
+        # "모름" 은 통계에서 제외
+        mbti_counter = Counter({
+            k: v for k, v in mbti_counter_raw.items()
+            if k not in (None, "", "모름")
+        })
+
+
         # 텍스트 요약
         st.markdown(f"- 전체 인원: **{total_players}명**")
 
@@ -1426,6 +1481,13 @@ with tab1:
         ntrp_text = " / ".join(f"NTRP {k}: {v}명" for k, v in ntrp_counter.items())
         st.markdown(f"- NTRP 분포: {ntrp_text}")
 
+        if mbti_counter:
+            mbti_text = " / ".join(f"{k} {v}명" for k, v in mbti_counter.items())
+        else:
+            mbti_text = "집계할 MBTI가 없습니다."
+        st.markdown(f"- MBTI 분포: {mbti_text}")
+
+
 
         with st.expander("📈 항목별 분포 다이어그램 (각 항목 100% 기준) 🔽 아래로 내려보세요.", expanded=False):
 
@@ -1439,7 +1501,7 @@ with tab1:
                     help="이 값보다 적은 인원인 항목은 숨겨집니다.",
                 )
 
-                section_options = ["나이대", "성별", "주손", "라켓", "NTRP"]
+                section_options = ["나이대", "성별", "주손", "라켓", "NTRP", "MBTI"]
                 selected_sections = st.multiselect(
                     "보고 싶은 항목 선택",
                     section_options,
@@ -1458,6 +1520,9 @@ with tab1:
                 dist_items.append(("라켓 브랜드별 분포", racket_counter))
             if "NTRP" in selected_sections:
                 dist_items.append(("NTRP 레벨별 분포", ntrp_counter))
+            if "MBTI" in selected_sections:
+                dist_items.append(("MBTI 분포", mbti_counter))
+
 
             # 📱 모바일 모드면 1열, PC면 2열씩 배치
             if mobile_mode:
@@ -1532,6 +1597,7 @@ with tab1:
                     index=get_index_or_default(
                         GENDER_OPTIONS, player.get("gender", "남"), 0
                     ),
+                    key=f"edit_gender_{sel_edit}",   # ✅ 고유 key
                 )
                 e_hand = st.selectbox(
                     "주손 (수정)",
@@ -1539,14 +1605,28 @@ with tab1:
                     index=get_index_or_default(
                         HAND_OPTIONS, player.get("hand", "오른손"), 0
                     ),
+                    key=f"edit_hand_{sel_edit}",     # ✅ 고유 key
                 )
+
                 cur_ntrp = player.get("ntrp")
                 cur_ntrp_str = "모름" if cur_ntrp is None else f"{cur_ntrp:.1f}"
                 e_ntrp_str = st.selectbox(
                     "NTRP (수정)",
                     NTRP_OPTIONS,
                     index=get_index_or_default(NTRP_OPTIONS, cur_ntrp_str, 0),
+                    key=f"edit_ntrp_{sel_edit}",     # ✅ 고유 key
                 )
+
+                # MBTI (수정)
+                cur_mbti = player.get("mbti", "모름")
+                e_mbti = st.selectbox(
+                    "MBTI (수정)",
+                    MBTI_OPTIONS,
+                    index=get_index_or_default(MBTI_OPTIONS, cur_mbti, 0),
+                    key=f"edit_mbti_{sel_edit}",     # ✅ 고유 key
+                )
+
+
 
             cb1, cb2 = st.columns(2)
 
@@ -1568,6 +1648,7 @@ with tab1:
                             "gender": e_gender,
                             "hand": e_hand,
                             "ntrp": ntrp_val,
+                            "mbti": e_mbti,
                         }
                     )
 
@@ -1636,6 +1717,15 @@ with tab1:
             new_hand = st.selectbox("주로 쓰는 손", HAND_OPTIONS, index=0, key="new_hand")
             ntrp_str = st.selectbox("NTRP (실력)", NTRP_OPTIONS, index=0, key="new_ntrp")
 
+            new_mbti = st.selectbox(
+                "MBTI",
+                MBTI_OPTIONS,
+                index=0,
+                key="new_mbti",
+            )
+
+
+
         st.markdown('<div class="main-primary-btn">', unsafe_allow_html=True)
         add_clicked = st.button("선수 추가", use_container_width=True, key="btn_add_player")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -1657,6 +1747,7 @@ with tab1:
                     "racket": new_racket,
                     "group": new_group,
                     "ntrp": ntrp_val,
+    	            "mbti": new_mbti,
                 }
                 roster.append(player)
                 st.session_state.roster = roster
@@ -2525,59 +2616,72 @@ with tab3:
                     prev_sides = res.get("sides", {}) or {}
                     sides = prev_sides.copy()
 
-                    # 1) 복식(2:2) → 한 줄 UI
 
 
-
-
-
-
-
-                    # 1) 복식(2:2) → 한 줄 UI (모바일에서도 한 줄)
+                    # 1) 복식(2:2) → 이름 옆 체크 = 포(듀스), 모름 = 통계 제외
                     if len(t1) == 2 and len(t2) == 2:
                         a, b = t1
                         c, d = t2
 
-                        # 이전 사이드값 정규화
-                        prev_norm = {
-                            p: normalize_side_label(prev_sides.get(p, SIDE_OPTIONS[0]))
-                            for p in [a, b, c, d]
-                        }
+                        # ▷ 저장돼 있던 사이드 정보 불러오기
+                        prev_sides = res.get("sides", {}) or {}
 
-                        # 팀1 기본 선택
-                        if prev_norm[a] == "포(듀스)":
-                            idx_t1 = 0
-                        elif prev_norm[b] == "포(듀스)":
-                            idx_t1 = 1
+                        def normalize_side_label(label: str) -> str:
+                            """저장된 값(포/백/모름/None 등)을 포(듀스)/백(애드)/모름 으로 통일"""
+                            if label is None:
+                                return "모름"
+                            label = str(label)
+                            if "모름" in label:
+                                return "모름"
+                            if "포" in label or "듀스" in label:
+                                return "포(듀스)"
+                            if "백" in label or "애드" in label:
+                                return "백(애드)"
+                            return label
+
+                        # ---- 팀1 기본 선택값 계산 ----
+                        prev_a = normalize_side_label(prev_sides.get(a))
+                        prev_b = normalize_side_label(prev_sides.get(b))
+                        if prev_a == "포(듀스)":
+                            default_t1 = a
+                        elif prev_b == "포(듀스)":
+                            default_t1 = b
                         else:
-                            idx_t1 = 0
+                            default_t1 = "모름"
 
-                        # 팀2 기본 선택
-                        if prev_norm[c] == "포(듀스)":
-                            idx_t2 = 0
-                        elif prev_norm[d] == "포(듀스)":
-                            idx_t2 = 1
+                        # ---- 팀2 기본 선택값 계산 ----
+                        prev_c = normalize_side_label(prev_sides.get(c))
+                        prev_d = normalize_side_label(prev_sides.get(d))
+                        if prev_c == "포(듀스)":
+                            default_t2 = c
+                        elif prev_d == "포(듀스)":
+                            default_t2 = d
                         else:
-                            idx_t2 = 0
+                            default_t2 = "모름"
 
-                        # 👉 한 줄 레이아웃
-                        col_t1, col_s1, col_vs, col_s2, col_t2 = st.columns(
-                            [2.8, 0.9, 0.4, 0.9, 2.8]
+                        t1_side_options = [a, b, "모름"]
+                        t2_side_options = [c, d, "모름"]
+
+                        idx_t1 = t1_side_options.index(default_t1)
+                        idx_t2 = t2_side_options.index(default_t2)
+
+                        # 👉 한 줄 레이아웃 : (왼쪽 라디오+이름들) 점수 VS 점수 (오른쪽 라디오+이름들)
+                        col_t1_side, col_s1, col_vs, col_s2, col_t2_side = st.columns(
+                            [2.8, 1.0, 0.5, 1.0, 2.8]
                         )
 
-                        # ---- 왼쪽 팀 (라디오 + 이름) ----
-                        with col_t1:
+                        # ---- 왼쪽 팀: 포 선수 선택 (이름 + 모름) ----
+                        with col_t1_side:
+                            choice_t1 = st.radio(
+                                "왼쪽 팀 포(듀스) 선수",
+                                t1_side_options,
+                                index=idx_t1,
+                                key=f"{sel_date}_side_radio_{idx}_t1",
+                                label_visibility="collapsed",
+                            )
                             st.markdown(
                                 render_name_pills(t1),
                                 unsafe_allow_html=True,
-                            )
-                            t1_dues = st.radio(
-                                "팀1 포(듀스) 사이드",
-                                [a, b],
-                                index=idx_t1,
-                                key=f"{sel_date}_side_radio_{idx}_t1",
-                                horizontal=True,
-                                label_visibility="collapsed",
                             )
 
                         # ---- 왼쪽 점수 ----
@@ -2617,32 +2721,37 @@ with tab3:
                                 label_visibility="collapsed",
                             )
 
-                        # ---- 오른쪽 팀 (라디오 + 이름) ----
-                        with col_t2:
+                        # ---- 오른쪽 팀: 포 선수 선택 ----
+                        with col_t2_side:
+                            choice_t2 = st.radio(
+                                "오른쪽 팀 포(듀스) 선수",
+                                t2_side_options,
+                                index=idx_t2,
+                                key=f"{sel_date}_side_radio_{idx}_t2",
+                                label_visibility="collapsed",
+                            )
                             st.markdown(
                                 "<div style='text-align:right;'>"
                                 + render_name_pills(t2)
                                 + "</div>",
                                 unsafe_allow_html=True,
                             )
-                            t2_dues = st.radio(
-                                "팀2 포(듀스) 사이드",
-                                [c, d],
-                                index=idx_t2,
-                                key=f"{sel_date}_side_radio_{idx}_t2",
-                                horizontal=True,
-                                label_visibility="collapsed",
-                            )
 
-                        sides = {
-                            a: "포(듀스)" if t1_dues == a else "백(애드)",
-                            b: "포(듀스)" if t1_dues == b else "백(애드)",
-                            c: "포(듀스)" if t2_dues == c else "백(애드)",
-                            d: "포(듀스)" if t2_dues == d else "백(애드)",
-                        }
+                        # ▷ 실제로 저장할 사이드 값 만들기
+                        def sides_from_choice(choice, p1, p2):
+                            # choice: p1 / p2 / "모름"
+                            if choice == "모름":
+                                return {p1: "모름", p2: "모름"}
+                            if choice == p1:
+                                return {p1: "포(듀스)", p2: "백(애드)"}
+                            # choice == p2
+                            return {p1: "백(애드)", p2: "포(듀스)"}
 
+                        sides_left = sides_from_choice(choice_t1, a, b)
+                        sides_right = sides_from_choice(choice_t2, c, d)
+                        sides = {**sides_left, **sides_right}
 
-
+                        results[str(idx)] = {"t1": s1, "t2": s2, "sides": sides}
 
 
                     # 2) 단식 / 기타
@@ -2706,14 +2815,10 @@ with tab3:
                         # 단식이면 사이드 UI 없음 → 저장 구조만 유지
                         sides = {p: None for p in all_players}
 
-                    # 공통: 결과 저장
-                    results[str(idx)] = {"t1": s1, "t2": s2, "sides": sides}
 
-                    st.markdown(
-                        "<div style='border-bottom:1px dashed #e5e7eb;"
-                        "margin:0.35rem 0 0.1rem 0;'></div>",
-                        unsafe_allow_html=True,
-                    )
+
+
+
 
             # 레이아웃 처리
             has_AB_games = bool(games_A or games_B)
@@ -3072,6 +3177,8 @@ with tab4:
             by_ntrp = defaultdict(lambda: {"G": 0, "W": 0, "D": 0, "L": 0})
             by_gender = defaultdict(lambda: {"G": 0, "W": 0, "D": 0, "L": 0})
             by_hand = defaultdict(lambda: {"G": 0, "W": 0, "D": 0, "L": 0})
+            by_mbti = defaultdict(lambda: {"G": 0, "W": 0, "D": 0, "L": 0})
+
 
             for d, idx, g in iter_games(sessions):
                 if month_key and not d.startswith(month_key):
@@ -3112,11 +3219,30 @@ with tab4:
                 by_court_type[court_type]["G"] += 1
                 by_court_type[court_type][res_self] += 1
 
-                sides = g["sides"]
-                side = sides.get(sel_player)
-                if side:
-                    by_side[side]["G"] += 1
-                    by_side[side][res_self] += 1
+
+                # 코트 사이드(포/백) 통계
+                sides = g.get("sides", {})
+                side_raw = sides.get(sel_player)
+
+                if side_raw:
+                    s = str(side_raw)
+
+                    # 모름이면 통계에서 제외
+                    if "모름" in s:
+                        pass
+                    else:
+                        if ("포" in s) or ("듀스" in s):
+                            side_key = "포(듀스)"
+                        elif ("백" in s) or ("애드" in s):
+                            side_key = "백(애드)"
+                        else:
+                            side_key = s
+
+                        by_side[side_key]["G"] += 1
+                        by_side[side_key][res_self] += 1
+
+
+
 
                 if in_t1:
                     partners = [x for x in t1 if x != sel_player]
@@ -3132,17 +3258,41 @@ with tab4:
                     with_partner[pt]["G"] += 1
                     with_partner[pt][res_self] += 1
 
+
+
                 for person in opponents:
                     m = roster_by_name.get(person, {})
-                    by_racket[m.get("racket", "기타")]["G"] += 1
-                    by_racket[m.get("racket", "기타")][res_self] += 1
-                    ntrp_val = get_ntrp_value(m)
-                    by_ntrp[f"{ntrp_val:.1f}"]["G"] += 1
-                    by_ntrp[f"{ntrp_val:.1f}"][res_self] += 1
-                    by_gender[m.get("gender", "남")]["G"] += 1
-                    by_gender[m.get("gender", "남")][res_self] += 1
-                    by_hand[m.get("hand", "오른손")]["G"] += 1
-                    by_hand[m.get("hand", "오른손")][res_self] += 1
+
+                    # 라켓: "모름" 은 통계에서 제외
+                    racket = m.get("racket", "모름")
+                    if racket != "모름":
+                        by_racket[racket]["G"] += 1
+                        by_racket[racket][res_self] += 1
+
+                    # NTRP: "모름" 은 통계에서 제외
+                    ntrp_str = m.get("ntrp", "모름")
+                    if ntrp_str != "모름":
+                        ntrp_val = get_ntrp_value(m)
+                        ntrp_key = f"{ntrp_val:.1f}"
+                        by_ntrp[ntrp_key]["G"] += 1
+                        by_ntrp[ntrp_key][res_self] += 1
+
+                    # 성별 / 주손은 그대로 집계
+                    gender = m.get("gender", "남")
+                    by_gender[gender]["G"] += 1
+                    by_gender[gender][res_self] += 1
+
+                    hand = m.get("hand", "오른손")
+                    by_hand[hand]["G"] += 1
+                    by_hand[hand][res_self] += 1
+
+                    # MBTI: 빈 값 / "모름" 은 통계에서 제외
+                    mbti = (m.get("mbti", "") or "").strip().upper()
+                    if mbti and mbti not in ("모름",):
+                        by_mbti[mbti]["G"] += 1
+                        by_mbti[mbti][res_self] += 1
+
+
 
             st.subheader(f"{sel_player} 요약 ({'전체' if not month_key else month_key})")
             if rec["G"] == 0:
@@ -3231,6 +3381,8 @@ with tab4:
                     st.info("파트너 기록이 없습니다.")
 
             with cR:
+
+
                 def make_group_df(title, data_dict, label):
                     st.markdown(title)
                     if not data_dict:
@@ -3240,6 +3392,27 @@ with tab4:
                     for k, r in data_dict.items():
                         if r["G"] == 0:
                             continue
+
+                        # ✔ 통계에서 제외할 값 필터
+                        # 나이: "비밀" (지금은 나이 표는 없지만 혹시 확장용)
+                        if label == "연령대" and k == "비밀":
+                            continue
+                        # 라켓: "모름" 제외
+                        if label == "라켓" and k == "모름":
+                            continue
+                        # 실력조: "미배정" 제외 (향후 그룹 통계용)
+                        if label == "실력조" and k == "미배정":
+                            continue
+                        # NTRP: "모름" / "0.0" 같은 placeholder 제외
+                        if label == "NTRP" and k in ("모름", "0.0"):
+                            continue
+                        if label == "사이드" and k == "모름":
+                            continue
+
+                        if label == "MBTI" and k in ("", "모름"):
+                            continue
+
+
                         rows.append(
                             {
                                 label: k,
@@ -3250,6 +3423,8 @@ with tab4:
                                 "승률": r["W"] / r["G"] * 100,
                             }
                         )
+
+
                     if not rows:
                         st.info("데이터 없음")
                         return
@@ -3270,6 +3445,7 @@ with tab4:
                 make_group_df("NTRP별 상대 승률", by_ntrp, "NTRP")
                 make_group_df("성별별 상대 승률", by_gender, "성별")
                 make_group_df("주손별 상대 승률", by_hand, "주손")
+                make_group_df("MBTI별 상대 승률", by_mbti, "MBTI")
 
 # =========================================================
 # 5) 월별 통계
@@ -3471,7 +3647,15 @@ with tab5:
             # --------------------------------
             # 3-1. 카테고리별 BEST 함수
             # --------------------------------
-            def best_by_category(label, key_func):
+            def best_by_category(label, key_func, exclude_values=None):
+                """
+                label: '주손', '라켓', '연령대', '성별', 'MBTI' 등
+                key_func: meta -> 그룹 키
+                exclude_values: {'모름', '비밀'} 처럼 제외할 값 set
+                """
+                if exclude_values is None:
+                    exclude_values = set()
+
                 stats = defaultdict(lambda: {"G": 0, "W": 0})
                 for d, idx, g in month_games:
                     t1, t2 = g["t1"], g["t2"]
@@ -3481,40 +3665,78 @@ with tab5:
                         continue
 
                     players_all = t1 + t2
+                    # 경기수 집계
                     for p in players_all:
                         meta = roster_by_name.get(p, {})
                         grp = key_func(meta)
+                        if grp in exclude_values:
+                            continue
                         stats[grp]["G"] += 1
 
+                    # 승리 그룹 집계
                     if r == "W":
-                        for p in t1:
-                            meta = roster_by_name.get(p, {})
-                            grp = key_func(meta)
-                            stats[grp]["W"] += 1
+                        winners = t1
                     elif r == "L":
-                        for p in t2:
-                            meta = roster_by_name.get(p, {})
-                            grp = key_func(meta)
-                            stats[grp]["W"] += 1
+                        winners = t2
+                    else:
+                        winners = []
 
-                best_grp = None
-                best_rate = -1
+                    for p in winners:
+                        meta = roster_by_name.get(p, {})
+                        grp = key_func(meta)
+                        if grp in exclude_values:
+                            continue
+                        stats[grp]["W"] += 1
+
+                # BEST 계산
+                best_grps = []
+                best_rate = -1.0
+
                 for grp, v in stats.items():
-                    if v["G"] < 3:
+                    if v["G"] < 3:      # 최소 3경기 기준
                         continue
                     rate = v["W"] / v["G"]
                     if rate > best_rate:
                         best_rate = rate
-                        best_grp = grp
+                        best_grps = [grp]
+                    elif rate == best_rate:
+                        best_grps.append(grp)
 
-                if best_grp is None:
+                if not best_grps:
                     return f"{label}: 데이터 부족"
-                return f"{label}: {best_grp} (승률 {best_rate*100:.1f}%, 경기수 {stats[best_grp]['G']})"
 
-            best_hand = best_by_category("주손",   lambda m: m.get("hand", "오른손"))
-            best_racket = best_by_category("라켓", lambda m: m.get("racket", "기타"))
-            best_age = best_by_category("연령대",  lambda m: m.get("age_group", "비밀"))
-            best_gender = best_by_category("성별", lambda m: m.get("gender", "남"))
+                # 공동 1등 처리
+                grp_text = ", ".join(best_grps)
+                return f"{label}: {grp_text} (승률 {best_rate*100:.1f}%, 경기수 {stats[best_grps[0]]['G']})"
+
+
+            best_hand = best_by_category(
+                "주손",
+                lambda m: m.get("hand", "오른손"),
+            )
+
+            best_racket = best_by_category(
+                "라켓",
+                lambda m: m.get("racket", "모름"),
+            )
+
+            best_age = best_by_category(
+                "연령대",
+                lambda m: m.get("age_group", "비밀"),
+            )
+
+            best_gender = best_by_category(
+                "성별",
+                lambda m: m.get("gender", "남"),
+            )
+
+            best_mbti = best_by_category(
+                "MBTI",
+                lambda m: m.get("mbti", "모름"),
+                exclude_values={"모름"},
+            )
+
+
 
             # --------------------------------
             # 3-2. 선수별 BEST 계산
@@ -3636,6 +3858,7 @@ with tab5:
                         <li>라켓&nbsp;:&nbsp;{best_racket}</li>
                         <li>연령대&nbsp;:&nbsp;{best_age}</li>
                         <li>성별&nbsp;:&nbsp;{best_gender}</li>
+                        <li>MBTI&nbsp;:&nbsp;{best_mbti}</li>
                     </ul>
                 </div>
                 """,
