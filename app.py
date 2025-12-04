@@ -14,6 +14,7 @@ import plotly.express as px
 
 
 
+
 # ---------- 라이트 모드 강제 스타일 ----------
 st.markdown("""
 <style>
@@ -396,6 +397,172 @@ def build_hanul_aa_schedule(players, court_count):
         schedule.append(("복식", t1, t2, court))
 
     return schedule
+
+
+def detect_score_warnings(day_data):
+    """
+    한 날짜(day_data)에 대해 점수 입력 실수 의심 목록을 만들어 준다.
+    - 점수 미입력
+    - 5:5가 아닌 동점(무승부) 점수
+    """
+    schedule = day_data.get("schedule", [])
+    results = day_data.get("results", {})
+    warnings = []
+
+    for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
+        res = results.get(str(idx)) or results.get(idx) or {}
+        s1 = res.get("t1")
+        s2 = res.get("t2")
+
+        # 1) 점수 미입력
+        if s1 is None or s2 is None:
+            warnings.append(f"{idx}번 경기: 점수가 비어 있어요.")
+            continue
+
+        # 2) 동점인데 5:5가 아닌 경우만 경고
+        if s1 == s2 and s1 != 5:
+            warnings.append(
+                f"{idx}번 경기: {s1}:{s2} → 5:5가 아닌 무승부 점수예요. 다시 한 번 확인해 주세요."
+            )
+
+    return warnings
+
+
+def build_daily_report(sel_date, day_data):
+    """
+    선택된 날짜(sel_date)에 대한 '오늘의 요약 리포트'용 문장 리스트 생성.
+    - 출석 인원 / 점수 입력된 경기 수
+    - 승점왕 / 공동 승점왕
+    - 무패 선수
+    - 상대를 0점으로 이긴 셧아웃 최다 선수
+    """
+    schedule = day_data.get("schedule", [])
+    results = day_data.get("results", {})
+
+    if not schedule:
+        return []
+
+    recs = defaultdict(
+        lambda: {
+            "G": 0,
+            "W": 0,
+            "D": 0,
+            "L": 0,
+            "points": 0,
+            "score_for": 0,
+            "score_against": 0,
+        }
+    )
+    attendees = set()
+    total_games = 0
+    baker_counter = Counter()
+
+    for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
+        res = results.get(str(idx)) or results.get(idx) or {}
+        s1 = res.get("t1")
+        s2 = res.get("t2")
+
+        r = calc_result(s1, s2)
+        if r is None:
+            # 점수가 아직 없는 경기는 리포트 통계에서 제외
+            continue
+
+        total_games += 1
+        players_all = t1 + t2
+        attendees.update(players_all)
+
+        for p in players_all:
+            recs[p]["G"] += 1
+
+        s1_val = s1 or 0
+        s2_val = s2 or 0
+        for p in t1:
+            recs[p]["score_for"] += s1_val
+            recs[p]["score_against"] += s2_val
+        for p in t2:
+            recs[p]["score_for"] += s2_val
+            recs[p]["score_against"] += s1_val
+
+        # 승/무/패 + 승점
+        if r == "W":
+            winners = t1
+            losers = t2
+        elif r == "L":
+            winners = t2
+            losers = t1
+        else:
+            winners = []
+            losers = []
+
+        for p in winners:
+            recs[p]["W"] += 1
+            recs[p]["points"] += WIN_POINT
+        for p in losers:
+            recs[p]["L"] += 1
+            recs[p]["points"] += LOSE_POINT
+        if r == "D":
+            for p in players_all:
+                recs[p]["D"] += 1
+                recs[p]["points"] += DRAW_POINT
+
+        # 셧아웃(상대 0점 승리) 집계
+        if s1 is not None and s2 is not None:
+            if s1 > 0 and s2 == 0:
+                for p in t1:
+                    baker_counter[p] += 1
+            elif s2 > 0 and s1 == 0:
+                for p in t2:
+                    baker_counter[p] += 1
+
+    if not attendees or total_games == 0:
+        return []
+
+    lines = []
+
+    # 1) 기본 출석 / 경기 수
+    lines.append(f"출석 인원 {len(attendees)}명, 점수 입력된 경기 {total_games}게임")
+
+    # 2) 승점왕 / 공동 승점왕
+    best_points = -1
+    best_players = []
+    for name, r in recs.items():
+        if r["G"] == 0:
+            continue
+        if r["points"] > best_points:
+            best_points = r["points"]
+            best_players = [name]
+        elif r["points"] == best_points:
+            best_players.append(name)
+
+    if best_players and best_points >= 0:
+        if len(best_players) == 1:
+            who = best_players[0]
+            r = recs[who]
+            lines.append(
+                f"오늘의 승점왕: {who} (승점 {best_points}점, {r['W']}승 {r['D']}무 {r['L']}패)"
+            )
+        else:
+            names_str = ", ".join(best_players)
+            example = recs[best_players[0]]
+            lines.append(
+                f"오늘의 공동 승점왕: {names_str} (모두 승점 {best_points}점, 예: {example['W']}승 {example['D']}무 {example['L']}패)"
+            )
+
+    # 3) 무패 선수
+    undefeated = [name for name, r in recs.items() if r["G"] > 0 and r["L"] == 0]
+    if undefeated:
+        names_str = ", ".join(undefeated)
+        lines.append(f"오늘 무패 선수: {names_str}")
+
+    # 4) 셧아웃 최다 선수 (상대 0점 승리)
+    if baker_counter:
+        max_b = max(baker_counter.values())
+        best_bakers = [n for n, c in baker_counter.items() if c == max_b]
+        names_str = ", ".join(best_bakers)
+        lines.append(f"상대를 0점으로 이긴 셧아웃 경기 최다: {names_str} (총 {max_b}번)")
+
+    return lines
+
 
 
 # ---------------------------------------------------------
@@ -1329,7 +1496,7 @@ st.title("🎾 마리아 상암포바 도우미 MSA (Beta)")
 mobile_mode = st.checkbox(
     "📱 모바일 최적화 모드",
     value=True,
-    help="핸드폰에서 볼 때는 켜 두는 걸 추천해!"
+    help="핸드폰으로 볼 때 켜 두는 걸 추천!"
 )
 
 
@@ -2402,18 +2569,40 @@ with tab2:
             )
 
 
+
+
 # =========================================================
 # 3) 경기 기록 / 통계 (날짜별)
 # =========================================================
+
+
 with tab3:
     section_card("경기 기록 / 통계", "📊")
 
     if not sessions:
         st.info("저장된 경기 기록이 없습니다.")
     else:
-        # 날짜 선택
-        dates = sorted(sessions.keys())
-        sel_date = st.selectbox("날짜 선택", dates, index=len(dates) - 1)
+        # 날짜 선택 (최근 날짜가 위로 오도록 정렬)
+        all_keys = list(sessions.keys())
+
+        # "전체" 키가 있을 수도 있으니 분리
+        has_total = "전체" in all_keys
+        date_keys = sorted(
+            [d for d in all_keys if d != "전체"],
+            reverse=True,           # 🔽 최근 날짜가 위로 오도록
+        )
+
+        if has_total:
+            # "전체"를 맨 위에 두고, 그 다음부터 최근 날짜 순
+            dates = ["전체"] + date_keys
+            # 기본 선택은 가장 최근 날짜
+            default_index = 1 if date_keys else 0
+        else:
+            dates = date_keys
+            default_index = 0 if date_keys else 0
+
+        sel_date = st.selectbox("날짜 선택", dates, index=default_index)
+
 
         day_data = sessions.get(sel_date, {})
         schedule = day_data.get("schedule", [])
@@ -2472,9 +2661,29 @@ with tab3:
         st.markdown("---")
 
         # -----------------------------
-        # 2. 경기 스코어 입력
+        # 2. 경기 스코어 입력 + 점수 잠금
         # -----------------------------
-        st.subheader("2. 경기 스코어 입력")
+
+        # 🟡 제목과 점수 잠금을 한 줄에 나란히 배치
+        col_title, col_lock = st.columns([5, 2])
+
+        with col_title:
+            st.subheader("2. 경기 스코어 입력")
+
+        with col_lock:
+            scores_locked = st.checkbox(
+                "🔒 점수 잠금",
+                value=day_data.get("scores_locked", False),
+                help="체크하면 이 날짜의 점수를 수정할 수 없습니다.",
+            )
+
+        # 잠금 상태가 바뀌면 날짜 데이터에 저장
+        if scores_locked != day_data.get("scores_locked", False):
+            day_data["scores_locked"] = scores_locked
+            sessions[sel_date] = day_data
+            st.session_state.sessions = sessions
+            save_sessions(sessions)
+
 
         # 복식 게임 포함 여부 체크 (단식이면 안내문 숨김)
         show_side_notice = any(
@@ -2529,11 +2738,16 @@ with tab3:
             # ------------------------------
             # A/B조별 스코어 입력 블록
             # ------------------------------
+
+
             def render_score_inputs_block(title, game_list):
                 """title: 'A조 경기 스코어', 'B조 경기 스코어' 등
                    game_list: [(idx, gtype, t1, t2, court), ...]"""
                 if not game_list:
                     return
+
+                # 🔒 이 날짜의 잠금 상태
+                locked = day_data.get("scores_locked", False)
 
                 # 헤더 색상
                 if "A조" in title:
@@ -2564,26 +2778,45 @@ with tab3:
                     unsafe_allow_html=True,
                 )
 
-                # 사이드 라벨 통일
-                def normalize_side_label(label: str) -> str:
-                    if label is None:
-                        return SIDE_OPTIONS[0]
-                    if "듀스" in label:
-                        return "포(듀스)"
-                    if "애드" in label:
-                        return "백(애드)"
-                    return label
-
-                # 배지 모양 이름 줄
+                # 배지 모양 이름 줄 (성별에 따라 배경색 다르게)
                 def render_name_pills(players):
-                    html = " ".join(
-                        f"<span class='name-badge' style='display:inline-block;"
-                        f"padding:3px 10px;border-radius:999px;background:#e5f0ff;"
-                        f"font-size:0.78rem;margin-right:4px;'>{p}</span>"
-                        for p in players
-                    )
-                    return html
+                    html_parts = []
+                    for p in players:
+                        info = roster_by_name.get(p, {}) or {}
+                        gender = info.get("gender") or info.get("성별")
 
+                        if gender == "여":
+                            bg = "#fee2e2"   # 연한 빨강
+                            color = "#b91c1c"
+                        elif gender == "남":
+                            bg = "#dbeafe"   # 연한 파랑
+                            color = "#1d4ed8"
+                        else:
+                            bg = "#e5e7eb"
+                            color = "#374151"
+
+                        html_parts.append(
+                            f"<span class='name-badge' style='display:inline-block;"
+                            f"padding:3px 10px;border-radius:999px;background:{bg};"
+                            f"color:{color};font-size:0.78rem;margin-right:4px;'>{p}</span>"
+                        )
+                    return " ".join(html_parts)
+
+                # 라디오 옵션에 붙일 성별 색상 라벨 (남 🔵 / 여 🔴)
+                def gender_badge_label(name: str) -> str:
+                    if name == "모름":
+                        return "모름"
+
+                    info = roster_by_name.get(name, {}) or {}
+                    gender = info.get("gender") or info.get("성별")
+
+                    if gender == "여":
+                        return f"🔴 {name}"
+                    elif gender == "남":
+                        return f"🔵 {name}"
+                    return name
+
+                # ✅ 여기서 한 번 정의해줘야 해
                 score_options_local = SCORE_OPTIONS
 
                 # 실제 게임들
@@ -2613,21 +2846,17 @@ with tab3:
                     prev_s2 = res.get("t2", 0)
 
                     all_players = list(t1) + list(t2)
-                    prev_sides = res.get("sides", {}) or {}
-                    sides = prev_sides.copy()
 
 
-
-                    # 1) 복식(2:2) → 이름 옆 체크 = 포(듀스), 모름 = 통계 제외
+                    # 1) 복식(2:2) → 사이드는 항상 수정 가능, 점수만 잠금
+                    # 1) 복식(2:2) → 사이드는 라디오, 점수는 잠금만 적용
                     if len(t1) == 2 and len(t2) == 2:
                         a, b = t1
                         c, d = t2
 
-                        # ▷ 저장돼 있던 사이드 정보 불러오기
                         prev_sides = res.get("sides", {}) or {}
 
                         def normalize_side_label(label: str) -> str:
-                            """저장된 값(포/백/모름/None 등)을 포(듀스)/백(애드)/모름 으로 통일"""
                             if label is None:
                                 return "모름"
                             label = str(label)
@@ -2639,7 +2868,7 @@ with tab3:
                                 return "백(애드)"
                             return label
 
-                        # ---- 팀1 기본 선택값 계산 ----
+                        # ---- 팀1 기본 선택값 ----
                         prev_a = normalize_side_label(prev_sides.get(a))
                         prev_b = normalize_side_label(prev_sides.get(b))
                         if prev_a == "포(듀스)":
@@ -2649,7 +2878,7 @@ with tab3:
                         else:
                             default_t1 = "모름"
 
-                        # ---- 팀2 기본 선택값 계산 ----
+                        # ---- 팀2 기본 선택값 ----
                         prev_c = normalize_side_label(prev_sides.get(c))
                         prev_d = normalize_side_label(prev_sides.get(d))
                         if prev_c == "포(듀스)":
@@ -2665,12 +2894,12 @@ with tab3:
                         idx_t1 = t1_side_options.index(default_t1)
                         idx_t2 = t2_side_options.index(default_t2)
 
-                        # 👉 한 줄 레이아웃 : (왼쪽 라디오+이름들) 점수 VS 점수 (오른쪽 라디오+이름들)
+                        # 🔹 레이아웃: [왼쪽 라디오] [팀1 점수] [VS] [팀2 점수] [오른쪽 라디오]
                         col_t1_side, col_s1, col_vs, col_s2, col_t2_side = st.columns(
-                            [2.8, 1.0, 0.5, 1.0, 2.8]
+                            [2.7, 1.1, 0.7, 1.1, 2.7]
                         )
 
-                        # ---- 왼쪽 팀: 포 선수 선택 (이름 + 모름) ----
+                        # 왼쪽 팀 (유대한 / 배성균 / 모름)
                         with col_t1_side:
                             choice_t1 = st.radio(
                                 "왼쪽 팀 포(듀스) 선수",
@@ -2678,13 +2907,10 @@ with tab3:
                                 index=idx_t1,
                                 key=f"{sel_date}_side_radio_{idx}_t1",
                                 label_visibility="collapsed",
-                            )
-                            st.markdown(
-                                render_name_pills(t1),
-                                unsafe_allow_html=True,
+                                format_func=gender_badge_label,  # 🔵/🔴 표시
                             )
 
-                        # ---- 왼쪽 점수 ----
+                        # 팀1 점수 (왼쪽 숫자)
                         with col_s1:
                             idx1 = get_index_or_default(score_options_local, prev_s1, 0)
                             s1 = st.selectbox(
@@ -2693,9 +2919,10 @@ with tab3:
                                 index=idx1,
                                 key=f"{sel_date}_s1_{idx}",
                                 label_visibility="collapsed",
+                                disabled=locked,   # 🔒 잠금
                             )
 
-                        # ---- VS ----
+                        # 가운데 VS
                         with col_vs:
                             st.markdown(
                                 """
@@ -2704,13 +2931,13 @@ with tab3:
                                     font-weight:600;
                                     font-size:0.8rem;
                                     line-height:1;
-                                    margin-top:4px;
+                                    margin-top:6px;
                                 ">VS</div>
                                 """,
                                 unsafe_allow_html=True,
                             )
 
-                        # ---- 오른쪽 점수 ----
+                        # 팀2 점수 (오른쪽 숫자)
                         with col_s2:
                             idx2 = get_index_or_default(score_options_local, prev_s2, 0)
                             s2 = st.selectbox(
@@ -2719,9 +2946,10 @@ with tab3:
                                 index=idx2,
                                 key=f"{sel_date}_s2_{idx}",
                                 label_visibility="collapsed",
+                                disabled=locked,   # 🔒 잠금
                             )
 
-                        # ---- 오른쪽 팀: 포 선수 선택 ----
+                        # 오른쪽 팀 (박상희 / 김재호 / 모름)
                         with col_t2_side:
                             choice_t2 = st.radio(
                                 "오른쪽 팀 포(듀스) 선수",
@@ -2729,22 +2957,14 @@ with tab3:
                                 index=idx_t2,
                                 key=f"{sel_date}_side_radio_{idx}_t2",
                                 label_visibility="collapsed",
-                            )
-                            st.markdown(
-                                "<div style='text-align:right;'>"
-                                + render_name_pills(t2)
-                                + "</div>",
-                                unsafe_allow_html=True,
+                                format_func=gender_badge_label,  # 🔵/🔴 표시
                             )
 
-                        # ▷ 실제로 저장할 사이드 값 만들기
                         def sides_from_choice(choice, p1, p2):
-                            # choice: p1 / p2 / "모름"
                             if choice == "모름":
                                 return {p1: "모름", p2: "모름"}
                             if choice == p1:
                                 return {p1: "포(듀스)", p2: "백(애드)"}
-                            # choice == p2
                             return {p1: "백(애드)", p2: "포(듀스)"}
 
                         sides_left = sides_from_choice(choice_t1, a, b)
@@ -2752,7 +2972,6 @@ with tab3:
                         sides = {**sides_left, **sides_right}
 
                         results[str(idx)] = {"t1": s1, "t2": s2, "sides": sides}
-
 
                     # 2) 단식 / 기타
                     else:
@@ -2776,6 +2995,7 @@ with tab3:
                                 index=idx1,
                                 key=f"{sel_date}_s1_{idx}",
                                 label_visibility="collapsed",
+                                disabled=locked,   # 🔒 잠금
                             )
 
                         with cols[2]:
@@ -2800,6 +3020,7 @@ with tab3:
                                 index=idx2,
                                 key=f"{sel_date}_s2_{idx}",
                                 label_visibility="collapsed",
+                                disabled=locked,   # 🔒 잠금
                             )
 
                         with cols[4]:
@@ -2812,13 +3033,8 @@ with tab3:
 
                         st.markdown("</div>", unsafe_allow_html=True)
 
-                        # 단식이면 사이드 UI 없음 → 저장 구조만 유지
                         sides = {p: None for p in all_players}
-
-
-
-
-
+                        results[str(idx)] = {"t1": s1, "t2": s2, "sides": sides}
 
             # 레이아웃 처리
             has_AB_games = bool(games_A or games_B)
@@ -2872,12 +3088,88 @@ with tab3:
             save_sessions(sessions)
 
             # -----------------------------
-            # 3) 오늘 경기 전체 삭제
+            # 3) 실수 방지 체크 (5:5 무승부는 제외)
             # -----------------------------
-            # ✅ 확인 박스를 표시할 위치(버튼 위)를 먼저 잡아둠
+
+
+            warnings = detect_score_warnings(day_data)
+
+            if warnings:
+                st.markdown(
+                    """
+                    <div style="
+                        margin:0.2rem 0 0.6rem 0;
+                        padding:0.7rem 1.0rem;
+                        border-radius:10px;
+                        background:#fef2f2;
+                        border:1px solid #fecaca;
+                        font-size:0.9rem;
+                        line-height:1.5;
+                    ">
+                        <b>⚠ 점수 입력을 한 번 더 확인해 주세요.</b><br/>
+                        (5:5 무승부는 정상으로 간주하고, 그 외의 동점 점수만 표시합니다.)
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                for msg in warnings:
+                    st.markdown(f"- {msg}")
+            else:
+                st.markdown(
+                    """
+                    <div style="
+                        margin:0.2rem 0 0.6rem 0;
+                        padding:0.7rem 1.0rem;
+                        border-radius:10px;
+                        background:#ecfdf5;
+                        border:1px solid #6ee7b7;
+                        font-size:0.9rem;
+                        line-height:1.5;
+                    ">
+                        ✅ 입력된 점수에서 특별히 의심되는 패턴은 없습니다.
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            # =====================================================
+            # 2. 오늘의 요약 리포트 (자동 생성)
+            # =====================================================
+            report_lines = build_daily_report(sel_date, day_data)
+
+            st.markdown("---")
+
+            if not report_lines:
+                st.info("점수가 입력된 경기가 아직 없어서 요약 리포트를 만들 수 없습니다.")
+            else:
+                html_lines = "".join(f"<li>{line}</li>" for line in report_lines)
+                st.markdown(
+                    f"""
+                    <div style="
+                        margin-top:0.3rem;
+                        padding:0.9rem 1.1rem;
+                        border-radius:12px;
+                        background:#eef2ff;
+                        border:1px solid #c7d2fe;
+                        font-size:0.9rem;
+                        line-height:1.5;
+                    ">
+                        <div style="font-weight:700;font-size:0.98rem;margin-bottom:0.4rem;">
+                            📋 {sel_date} 요약 리포트
+                        </div>
+                        <ul style="padding-left:1.1rem;margin:0;">
+                            {html_lines}
+                        </ul>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            # -----------------------------
+            # 4) 오늘 경기 전체 삭제
+            # -----------------------------
             confirm_container = st.container()
 
-            # 1) 맨 아래에 올 큰 삭제 버튼
             st.markdown('<div class="main-danger-btn">', unsafe_allow_html=True)
             delete_start = st.button(
                 "🗑 이 날짜의 경기 기록 전체 삭제",
@@ -2886,13 +3178,11 @@ with tab3:
             )
             st.markdown("</div>", unsafe_allow_html=True)
 
-            # 버튼 누르면 pending 상태 저장
             if delete_start:
                 st.session_state.pending_delete = sel_date
 
             pending = st.session_state.get("pending_delete")
 
-            # 2) 위에서 만들어둔 컨테이너 안에 확인 UI 그리기
             with confirm_container:
                 if pending == sel_date:
                     st.markdown(
@@ -2938,7 +3228,6 @@ with tab3:
 
                     st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
 
-                    # 실제 삭제
                     if yes_clicked:
                         sessions.pop(sel_date, None)
                         st.session_state.sessions = sessions
@@ -2949,14 +3238,14 @@ with tab3:
                             "위의 날짜 선택 박스를 다시 확인해 주세요."
                         )
 
-                    # 취소
                     if cancel_clicked:
                         st.session_state.pending_delete = None
                         st.info("삭제를 취소했습니다.")
 
                 st.markdown("<br>", unsafe_allow_html=True)
+
             # =====================================================
-            # 1. 현재 스코어 요약 (표) - 최신 results 기준으로 다시 그리기
+            # 1. 현재 스코어 요약 (표) - 최신 results 기준
             # =====================================================
             with summary_container:
                 st.subheader("1. 현재 스코어 요약 (표)")
@@ -2964,7 +3253,6 @@ with tab3:
                 if not schedule:
                     st.info("이 날짜에는 저장된 대진이 없습니다.")
                 else:
-                    # ▶ 요약 표 표시 방식 선택
                     summary_view_mode = st.radio(
                         "요약 보기 방식",
                         ["대진별 보기", "개인별 보기"],
@@ -2975,11 +3263,10 @@ with tab3:
                     games_A_sum, games_B_sum, games_other_sum = [], [], []
                     day_groups_snapshot = day_data.get("groups_snapshot")
 
-                    # 개인별 집계용 dict
-                    per_player_all = defaultdict(list)     # 전체
-                    per_player_A = defaultdict(list)       # A조 경기만
-                    per_player_B = defaultdict(list)       # B조 경기만
-                    per_player_other = defaultdict(list)   # 기타 / 섞인 경기
+                    per_player_all = defaultdict(list)
+                    per_player_A = defaultdict(list)
+                    per_player_B = defaultdict(list)
+                    per_player_other = defaultdict(list)
 
                     for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
                         res = results.get(str(idx)) or results.get(idx) or {}
@@ -3002,7 +3289,6 @@ with tab3:
                             day_groups_snapshot,
                         )
 
-                        # ---- 대진별 요약용 ----
                         if grp_flag == "A":
                             games_A_sum.append(row)
                         elif grp_flag == "B":
@@ -3010,8 +3296,6 @@ with tab3:
                         else:
                             games_other_sum.append(row)
 
-                        # ---- 개인별 요약용 ----
-                        # 점수가 없으면 빈칸
                         if s1 is None or s2 is None:
                             score_t1 = ""
                             score_t2 = ""
@@ -3019,13 +3303,11 @@ with tab3:
                             score_t1 = f"{s1} : {s2}"
                             score_t2 = f"{s2} : {s1}"
 
-                        # 전체용
                         for p in t1:
                             per_player_all[p].append(score_t1)
                         for p in t2:
                             per_player_all[p].append(score_t2)
 
-                        # 조별용
                         target_dict = per_player_other
                         if grp_flag == "A":
                             target_dict = per_player_A
@@ -3037,9 +3319,6 @@ with tab3:
                         for p in t2:
                             target_dict[p].append(score_t2)
 
-                    # ---------------------------
-                    # 1) 대진별 보기
-                    # ---------------------------
                     if summary_view_mode == "대진별 보기":
                         if view_mode_scores == "조별 보기 (A/B조)":
                             if games_A_sum:
@@ -3054,10 +3333,6 @@ with tab3:
                         else:
                             all_games_sum = games_A_sum + games_B_sum + games_other_sum
                             render_score_summary_table(all_games_sum, roster_by_name)
-
-                    # ---------------------------
-                    # 2) 개인별 보기
-                    # ---------------------------
                     else:
                         def render_player_score_table(title, per_dict):
                             if not per_dict:
@@ -3080,12 +3355,35 @@ with tab3:
 
                             df_players = pd.DataFrame(rows)
                             df_players = df_players.set_index("번호")
-                            df_players.index.name = ""   # 인덱스 글자 숨기기
+                            df_players.index.name = ""
+
+                            # 이긴 게임 / 진 게임 색
+                            def highlight_win_loss(val):
+                                if not isinstance(val, str):
+                                    return ""
+                                s = val.replace(" ", "")
+                                if ":" not in s:
+                                    return ""
+                                left, right = s.split(":", 1)
+                                try:
+                                    a = int(left)
+                                    b = int(right)
+                                except ValueError:
+                                    return ""
+
+                                if a > b:
+                                    return "background-color: #fef9c3;"  # 노랑
+                                elif a < b:
+                                    return "background-color: #e5e7eb;"  # 회색
+                                else:
+                                    return ""
+
+                            game_cols = ["1게임", "2게임", "3게임", "4게임"]
 
                             sty_players = colorize_df_names(df_players, roster_by_name, ["이름"])
+                            sty_players = sty_players.applymap(highlight_win_loss, subset=game_cols)
                             st.dataframe(sty_players, use_container_width=True)
 
-                        # 조별 보기면 A/B/기타 따로
                         if view_mode_scores == "조별 보기 (A/B조)":
                             has_any = False
                             if per_player_A:
@@ -3106,6 +3404,8 @@ with tab3:
                                 render_player_score_table("전체 개인별 스코어", per_player_all)
         else:
             st.info("이 날짜에는 저장된 대진이 없습니다.")
+
+
 
 # =========================================================
 # 4) 개인별 통계
@@ -3468,10 +3768,22 @@ with tab5:
         if not month_games:
             st.info("이 달에 경기 기록이 없습니다.")
         else:
+
+
+
             # 1. 월간 선수 순위표
             st.subheader("1. 월간 선수 순위표")
 
-            recs = defaultdict(
+            # 👉 전체 / 조별 보기 토글
+            rank_view_mode = st.radio(
+                "순위표 보기 방식",
+                ["전체", "조별 보기 (A/B조)"],
+                horizontal=True,
+                key="month_rank_view_mode",
+            )
+
+            # 전체 / A조 / B조 별로 따로 집계
+            recs_all = defaultdict(
                 lambda: {
                     "days": set(),
                     "G": 0,
@@ -3483,7 +3795,69 @@ with tab5:
                     "score_against": 0,
                 }
             )
+            recs_A = defaultdict(
+                lambda: {
+                    "days": set(),
+                    "G": 0,
+                    "W": 0,
+                    "D": 0,
+                    "L": 0,
+                    "points": 0,
+                    "score_for": 0,
+                    "score_against": 0,
+                }
+            )
+            recs_B = defaultdict(
+                lambda: {
+                    "days": set(),
+                    "G": 0,
+                    "W": 0,
+                    "D": 0,
+                    "L": 0,
+                    "points": 0,
+                    "score_for": 0,
+                    "score_against": 0,
+                }
+            )
+
             partners_by_player = defaultdict(set)
+
+            def update_recs(target_recs, d, t1, t2, s1, s2, r):
+                # 출석일 / 경기수
+                players_all = t1 + t2
+                for p in players_all:
+                    target_recs[p]["days"].add(d)
+                    target_recs[p]["G"] += 1
+
+                # 득점 / 실점 누적
+                s1_val = s1 or 0
+                s2_val = s2 or 0
+                for p in t1:
+                    target_recs[p]["score_for"] += s1_val
+                    target_recs[p]["score_against"] += s2_val
+                for p in t2:
+                    target_recs[p]["score_for"] += s2_val
+                    target_recs[p]["score_against"] += s1_val
+
+                # 승/무/패 + 점수(3/1/0)
+                if r == "W":
+                    for p in t1:
+                        target_recs[p]["W"] += 1
+                        target_recs[p]["points"] += WIN_POINT
+                    for p in t2:
+                        target_recs[p]["L"] += 1
+                        target_recs[p]["points"] += LOSE_POINT
+                elif r == "L":
+                    for p in t1:
+                        target_recs[p]["L"] += 1
+                        target_recs[p]["points"] += LOSE_POINT
+                    for p in t2:
+                        target_recs[p]["W"] += 1
+                        target_recs[p]["points"] += WIN_POINT
+                else:
+                    for p in players_all:
+                        target_recs[p]["D"] += 1
+                        target_recs[p]["points"] += DRAW_POINT
 
             for d, idx, g in month_games:
                 t1, t2 = g["t1"], g["t2"]
@@ -3492,43 +3866,25 @@ with tab5:
                 if r is None:
                     continue
 
-                # 출석일 / 경기수
-                players_all = t1 + t2
-                for p in players_all:
-                    recs[p]["days"].add(d)
-                    recs[p]["G"] += 1
+                # 이 경기의 조(A/B/기타) 판별 (그 날짜의 스냅샷 우선)
+                all_players = t1 + t2
+                day_groups_snapshot = sessions.get(d, {}).get("groups_snapshot")
+                grp_flag = classify_game_group(
+                    all_players,
+                    roster_by_name,
+                    day_groups_snapshot,
+                )
 
-                # 득점 / 실점 누적
-                s1_val = s1 or 0
-                s2_val = s2 or 0
-                for p in t1:
-                    recs[p]["score_for"] += s1_val
-                    recs[p]["score_against"] += s2_val
-                for p in t2:
-                    recs[p]["score_for"] += s2_val
-                    recs[p]["score_against"] += s1_val
+                # 전체 기록
+                update_recs(recs_all, d, t1, t2, s1, s2, r)
 
-                # 승/무/패 + 점수(3/1/0)
-                if r == "W":
-                    for p in t1:
-                        recs[p]["W"] += 1
-                        recs[p]["points"] += WIN_POINT
-                    for p in t2:
-                        recs[p]["L"] += 1
-                        recs[p]["points"] += LOSE_POINT
-                elif r == "L":
-                    for p in t1:
-                        recs[p]["L"] += 1
-                        recs[p]["points"] += LOSE_POINT
-                    for p in t2:
-                        recs[p]["W"] += 1
-                        recs[p]["points"] += WIN_POINT
-                else:
-                    for p in players_all:
-                        recs[p]["D"] += 1
-                        recs[p]["points"] += DRAW_POINT
+                # A/B조 전용 기록
+                if grp_flag == "A":
+                    update_recs(recs_A, d, t1, t2, s1, s2, r)
+                elif grp_flag == "B":
+                    update_recs(recs_B, d, t1, t2, s1, s2, r)
 
-                # 파트너 집계 (같은 팀 안에서만)
+                # 파트너 집계 (같은 팀 안에서만, 전체 기준)
                 for team in (t1, t2):
                     if len(team) >= 2:  # 복식만
                         for i, p in enumerate(team):
@@ -3536,34 +3892,65 @@ with tab5:
                                 if i != j:
                                     partners_by_player[p].add(q)
 
-            rows = []
-            for name, r in recs.items():
-                if r["G"] == 0:
-                    continue
-                win_rate = r["W"] / r["G"] * 100
-                rows.append(
-                    {
-                        "이름": name,
-                        "출석일수": len(r["days"]),
-                        "경기수": r["G"],
-                        "승": r["W"],
-                        "무": r["D"],
-                        "패": r["L"],
-                        "점수": r["points"],
-                        "승률": win_rate,
-                    }
-                )
+            # 👉 뒤에 BEST 계산에서 쓰던 recs 는 "전체" 기준으로 유지
+            recs = recs_all
 
-            rank_df = pd.DataFrame(rows).sort_values(
-                ["점수", "승률"], ascending=False
-            ).reset_index(drop=True)  # 기존 인덱스 제거 후 0부터 새로 시작
+            def build_rank_df(recs_dict):
+                rows = []
+                for name, r in recs_dict.items():
+                    if r["G"] == 0:
+                        continue
+                    win_rate = r["W"] / r["G"] * 100
+                    rows.append(
+                        {
+                            "이름": name,
+                            "출석일수": len(r["days"]),
+                            "경기수": r["G"],
+                            "승": r["W"],
+                            "무": r["D"],
+                            "패": r["L"],
+                            "점수": r["points"],
+                            "승률": win_rate,
+                        }
+                    )
+                if not rows:
+                    return None
+                df = pd.DataFrame(rows).sort_values(
+                    ["점수", "승률"], ascending=False
+                ).reset_index(drop=True)
+                df.index = df.index + 1
+                df.index.name = "순위"
+                df["승률"] = df["승률"].map(lambda x: f"{x:.1f}%")
+                return df
 
-            rank_df.index = rank_df.index + 1  # 1부터 시작하도록 조정
-            rank_df.index.name = "순위"        # 인덱스 이름 지정
+            # 📊 출력
+            if rank_view_mode == "전체":
+                rank_df = build_rank_df(recs_all)
+                if rank_df is None:
+                    st.info("표시할 데이터가 없습니다.")
+                else:
+                    sty_rank = colorize_df_names(rank_df, roster_by_name, ["이름"])
+                    st.dataframe(sty_rank, use_container_width=True)
+            else:
+                # 조별 보기
+                rank_df_A = build_rank_df(recs_A)
+                rank_df_B = build_rank_df(recs_B)
 
-            rank_df["승률"] = rank_df["승률"].map(lambda x: f"{x:.1f}%")
-            sty_rank = colorize_df_names(rank_df, roster_by_name, ["이름"])
-            st.dataframe(sty_rank, use_container_width=True)
+                has_any = False
+                if rank_df_A is not None:
+                    has_any = True
+                    st.markdown("### 🟥 A조 월간 선수 순위표")
+                    sty_A = colorize_df_names(rank_df_A, roster_by_name, ["이름"])
+                    st.dataframe(sty_A, use_container_width=True)
+
+                if rank_df_B is not None:
+                    has_any = True
+                    st.markdown("### 🟦 B조 월간 선수 순위표")
+                    sty_B = colorize_df_names(rank_df_B, roster_by_name, ["이름"])
+                    st.dataframe(sty_B, use_container_width=True)
+
+                if not has_any:
+                    st.info("A조 / B조로 나눠서 표시할 데이터가 없습니다.")
 
 
 
@@ -3809,6 +4196,62 @@ with tab5:
                 attendance_line = "데이터 부족"
 
 
+            # 🔥 연승왕 – 이 달 최대 연승
+            streak_now = defaultdict(int)   # 현재 진행 중인 연승
+            streak_best = defaultdict(int)  # 선수별 최고 연승
+
+            # 날짜 + 게임번호 기준으로 정렬해서 순서대로 순회
+            for d, idx, g in sorted(month_games, key=lambda x: (x[0], x[1])):
+                t1, t2 = g["t1"], g["t2"]
+                s1, s2 = g["score1"], g["score2"]
+                r = calc_result(s1, s2)
+                if r is None:
+                    continue
+
+                # 무승부는 연승 끊기만 하고, 별도 승리 추가는 없음
+                if r == "D":
+                    for p in t1 + t2:
+                        if streak_now[p] > streak_best[p]:
+                            streak_best[p] = streak_now[p]
+                        streak_now[p] = 0
+                    continue
+
+                if r == "W":
+                    winners, losers = t1, t2
+                else:  # r == "L"
+                    winners, losers = t2, t1
+
+                # 이긴 사람들: 연승 +1
+                for p in winners:
+                    streak_now[p] += 1
+                    if streak_now[p] > streak_best[p]:
+                        streak_best[p] = streak_now[p]
+
+                # 진 사람들: 연승 끊김
+                for p in losers:
+                    if streak_now[p] > streak_best[p]:
+                        streak_best[p] = streak_now[p]
+                    streak_now[p] = 0
+
+            # 루프 끝나고도 진행 중인 연승이 있을 수 있으니 한 번 더 반영
+            for p, cur in streak_now.items():
+                if cur > streak_best[p]:
+                    streak_best[p] = cur
+
+            # 최소 2연승 이상인 사람만 의미 있게 표시
+            streak_line = "데이터 부족"
+            if streak_best:
+                max_streak = max(streak_best.values())
+                if max_streak >= 2:
+                    winners_streak = sorted(
+                        [p for p, v in streak_best.items() if v == max_streak]
+                    )
+                    names_text = ", ".join(winners_streak)
+                    streak_line = f"{names_text} (최대 {max_streak}연승)"
+
+
+
+
             # 🥖 제빵왕 – 상대 팀을 0점으로 만든 경기 수 기준
             baker_counter = Counter()
             for d, idx, g in month_games:
@@ -3882,6 +4325,7 @@ with tab5:
                         <li>🎯 노자비왕&nbsp;:&nbsp;{diff_line}</li>
                         <li>🤝 우정왕&nbsp;:&nbsp;{partner_line}</li>
                         <li>👑 출석왕&nbsp;:&nbsp;{attendance_line}</li>
+                        <li>🔥 연승왕&nbsp;:&nbsp;{streak_line}</li>
                         <li>🥖 제빵왕&nbsp;:&nbsp;{baker_line}</li>
                     </ul>
                 </div>
