@@ -624,6 +624,81 @@ def colorize_df_names(df, roster_by_name, columns):
             styler = styler.applymap(style_name, subset=[c])
     return styler
 
+def normalize_mixed_doubles_team(t1, t2, meta):
+    """
+    혼합복식인데 남남/여여로 나뉜 경우를
+    같은 4명에서 M+F vs M+F로 재팀 구성.
+    남2여2일 때만 적용.
+    """
+    four = list(t1) + list(t2)
+    if len(four) != 4:
+        return t1, t2
+
+    males = [n for n in four if meta.get(n, {}).get("gender") == "남"]
+    females = [n for n in four if meta.get(n, {}).get("gender") == "여"]
+
+    if len(males) == 2 and len(females) == 2:
+        new_t1 = (males[0], females[0])
+        new_t2 = (males[1], females[1])
+        return new_t1, new_t2
+
+    return t1, t2
+
+def fix_mixed_team_if_needed(t1, t2, meta):
+    """
+    혼합복식 후처리:
+    - 같은 4명 기준
+    - 남2/여2 조합인데
+    - 현재 팀 구성이 (남남 vs 여여) 같은 '동성팀 vs 동성팀'이면
+      -> (남+여) vs (남+여)로 재팀
+    """
+    four = list(t1) + list(t2)
+    if len(four) != 4:
+        return t1, t2
+
+    genders = [meta.get(n, {}).get("gender") for n in four]
+    if not all(g in ("남", "여") for g in genders):
+        return t1, t2  # 성별 정보 불명확하면 패스
+
+    males = [n for n in four if meta.get(n, {}).get("gender") == "남"]
+    females = [n for n in four if meta.get(n, {}).get("gender") == "여"]
+
+    # 혼복이 성립하는 2:2가 아니면 건드리지 않음
+    if len(males) != 2 or len(females) != 2:
+        return t1, t2
+
+    def is_same_gender_team(team):
+        g1 = meta.get(team[0], {}).get("gender")
+        g2 = meta.get(team[1], {}).get("gender")
+        return g1 == g2
+
+    # 두 팀이 모두 동성팀이면 -> 혼복 형태로 재구성
+    if is_same_gender_team(t1) and is_same_gender_team(t2):
+        new_t1 = (males[0], females[0])
+        new_t2 = (males[1], females[1])
+        return new_t1, new_t2
+
+    return t1, t2
+
+
+def normalize_mixed_schedule(schedule, meta):
+    """
+    schedule 전체를 훑어서
+    혼합복식에서 발생하는
+    '남남 vs 여여' 케이스를 자동 교정
+    """
+    if not schedule:
+        return schedule
+
+    fixed = []
+    for gtype_each, t1, t2, court in schedule:
+        # 여기서 gtype 문자열 의존 안 함!
+        nt1, nt2 = fix_mixed_team_if_needed(t1, t2, meta)
+        fixed.append((gtype_each, nt1, nt2, court))
+
+    return fixed
+
+
 
 def render_name_badge(name, roster_by_name):
     """이름 + 성별 배경 색깔 뱃지 HTML"""
@@ -973,8 +1048,6 @@ def get_daily_fortune(sel_player):
     "내가 실수하더라도 파트너 때문이라고 생각 해라.",
     "테니스 별거 없다. 그냥 치자.",
     "(프로선수) 빙의하는 날.",
-    "절름발이가 범인이다.",
-    "브루스윌리스가 유령이다.",
     "운세에 의지하지마라.",
 
     "오늘 공은 네가 친 게 아니다. 공이 네 불안을 느끼고 도망간다. 잡아라.",
@@ -1115,6 +1188,137 @@ def classify_game_group(players, roster_by_name, groups_snapshot=None):
     if has_B and not has_A:
         return "B"
     return "other"
+
+
+
+from collections import defaultdict
+import math
+import random
+
+def _count_games_in_schedule(schedule):
+    counts = defaultdict(int)
+    for gtype, t1, t2, court in schedule:
+        for p in list(t1) + list(t2):
+            counts[p] += 1
+    return counts
+
+def _mixed_team_invalid_count(schedule, meta_for_match):
+    """
+    혼합복식 규칙 위반 팀 수 카운트:
+    - 각 팀이 (남+여) 조합이 아니면 위반 1
+    """
+    bad = 0
+    for gtype, t1, t2, court in schedule:
+        for team in (t1, t2):
+            if len(team) != 2:
+                continue
+            g1 = meta_for_match.get(team[0], {}).get("gender")
+            g2 = meta_for_match.get(team[1], {}).get("gender")
+            if not g1 or not g2:
+                continue
+            if g1 == g2:
+                bad += 1
+    return bad
+
+def _effective_min_guard_for_mixed(players, schedule_len, meta_for_match, min_guard):
+    """
+    혼복에서 성비 불균형일 때 '물리적으로 가능한 최소치'로 min_guard 자동 완화.
+    혼복은 한 게임당 남자 슬롯 2, 여자 슬롯 2가 생김.
+    """
+    males = [p for p in players if meta_for_match.get(p, {}).get("gender") == "남"]
+    females = [p for p in players if meta_for_match.get(p, {}).get("gender") == "여"]
+
+    if not males or not females:
+        return min_guard  # 혼복이지만 성별 정보가 부족하면 건드리지 않음
+
+    total_male_slots = 2 * schedule_len
+    total_female_slots = 2 * schedule_len
+
+    # 성별별 평균적으로 가능한 상한/하한 느낌의 최소치
+    male_avg = total_male_slots / max(1, len(males))
+    female_avg = total_female_slots / max(1, len(females))
+
+    # 최소 보장은 평균을 넘길 수 없음 → floor로 안전하게
+    min_possible = int(math.floor(min(male_avg, female_avg)))
+
+    # 기존 min_guard보다 낮아야만 완화
+    return min(min_guard, max(1, min_possible))
+
+def _score_schedule(
+    players,
+    schedule,
+    meta_for_match,
+    target_games,
+    min_guard,
+    mode_label,
+):
+    """
+    점수는 '낮을수록 좋은 대진'
+    구성:
+    1) 최소 보장 위반 페널티(가장 큼)
+    2) 목표 경기수 근접(부족/초과)
+    3) 혼복 팀 규칙 위반 페널티(혼복일 때 매우 큼)
+    4) 혼복 성별 분배 균형(성비 불균형 상황에서 4/4/2/2/2/2로 끌어줌)
+    """
+    if not schedule:
+        return 10**18
+
+    counts = _count_games_in_schedule(schedule)
+
+    # 모든 players에 대해 count가 없으면 0으로 보정
+    for p in players:
+        counts[p] = counts.get(p, 0)
+
+    # 혼복이면 min_guard 자동 완화
+    eff_min_guard = min_guard
+    if mode_label == "혼합복식 (남+여 짝)":
+        eff_min_guard = _effective_min_guard_for_mixed(
+            players, len(schedule), meta_for_match, min_guard
+        )
+
+    # 1) 최소 보장 페널티
+    min_def = 0
+    for p in players:
+        if counts[p] < eff_min_guard:
+            d = eff_min_guard - counts[p]
+            min_def += d * d
+
+    # 2) 목표 경기수 근접 (부족을 더 크게)
+    under = 0
+    over = 0
+    for p in players:
+        if counts[p] < target_games:
+            d = target_games - counts[p]
+            under += d * d
+        elif counts[p] > target_games:
+            d = counts[p] - target_games
+            over += d * d
+
+    # 3) 혼복 팀 규칙 위반 페널티
+    mixed_bad = 0
+    gender_balance_pen = 0
+
+    if mode_label == "혼합복식 (남+여 짝)":
+        mixed_bad = _mixed_team_invalid_count(schedule, meta_for_match)
+
+        males = [p for p in players if meta_for_match.get(p, {}).get("gender") == "남"]
+        females = [p for p in players if meta_for_match.get(p, {}).get("gender") == "여"]
+
+        # 성별 슬롯 기반 기대치
+        if males and females:
+            male_expected = (2 * len(schedule)) / len(males)
+            female_expected = (2 * len(schedule)) / len(females)
+
+            for p in males:
+                gender_balance_pen += (counts[p] - male_expected) ** 2
+            for p in females:
+                gender_balance_pen += (counts[p] - female_expected) ** 2
+
+    # 가중치
+    W_MIN = 120      # 최소 보장 최우선
+    W_UNDER = 25     # 목표 미달
+    W_OVER = 8       # 목표 초과
+    W_MIXED_BAD = 200  # 혼복 팀 위반은 강하
 
 
 
@@ -1931,6 +2135,418 @@ with tab1:
 
 
 
+
+# ---------------------------------------------------------
+# ✅ 대진 품질 스코어링 유틸 (최소 -1 보장 + 저게임 수 우선)
+# ---------------------------------------------------------
+def count_games_from_schedule(schedule):
+    counts = defaultdict(int)
+    for gt, t1, t2, court in schedule:
+        for p in list(t1) + list(t2):
+            counts[p] += 1
+    return counts
+
+
+def score_schedule(schedule, players_pool, target_games, min_guard):
+    """
+    점수 높을수록 좋은 대진.
+    - min_guard 미달은 강한 페널티
+    - 목표(target_games) 근접
+    - 분산/격차 작을수록
+    - 저게임 수(=최소치) 끌어올린 대진에 보너스
+    """
+    if not schedule:
+        return -10**9
+
+    counts = count_games_from_schedule(schedule)
+
+    # 풀에 포함된 선수는 카운트 0도 포함
+    vals = [counts.get(p, 0) for p in players_pool]
+    if not vals:
+        return -10**9
+
+    min_v = min(vals)
+    max_v = max(vals)
+
+    # 1) 최소 보장 페널티 (가장 중요)
+    #    min_guard 미달 인원/정도에 따라 매우 큰 감점
+    lack_sum = 0
+    lack_people = 0
+    for v in vals:
+        if v < min_guard:
+            lack_people += 1
+            lack_sum += (min_guard - v)
+
+    penalty_min_guard = (lack_people * 2000) + (lack_sum * 800)
+
+    # 2) 목표 경기수 근접 페널티
+    penalty_target = sum(abs(v - target_games) for v in vals) * 30
+
+    # 3) 격차(불균형) 페널티
+    penalty_spread = (max_v - min_v) * 120
+
+    # 4) “저게임 수 우선” 보너스
+    #    최소치가 높을수록 큰 보너스
+    bonus_raise_floor = min_v * 250
+
+    # 5) 스케줄 규모 보너스(너무 과감한 감축 방지)
+    bonus_size = len(schedule) * 3
+
+    score = (
+        0
+        - penalty_min_guard
+        - penalty_target
+        - penalty_spread
+        + bonus_raise_floor
+        + bonus_size
+    )
+
+    return score
+
+
+def try_build_best_schedule(players_pool, build_fn, target_games, min_guard, tries=80):
+    """
+    build_fn()이 만드는 대진 후보를 tries번 생성해서
+    score_schedule 기준으로 가장 좋은 대진 1개를 고른다.
+    """
+    best = []
+    best_score = -10**18
+
+    for _ in range(tries):
+        try:
+            cand = build_fn()
+        except Exception:
+            cand = []
+
+        sc = score_schedule(cand, players_pool, target_games, min_guard)
+        if sc > best_score:
+            best_score = sc
+            best = cand
+
+    # best가 min_guard 충족하는지 체크
+    ok = True
+    counts = count_games_from_schedule(best)
+    for p in players_pool:
+        if counts.get(p, 0) < min_guard:
+            ok = False
+            break
+
+    return best, ok
+
+
+def try_build_best_schedule_grouped(
+    group_players,
+    build_fn_by_group,
+    target_games,
+    min_guard,
+    tries=60,
+):
+    """
+    group_players: {"A조":[...], "B조":[...]}
+    build_fn_by_group: {"A조": fnA, "B조": fnB}
+      - fnA()는 A조만 대상으로 스케줄 생성
+      - fnB()는 B조만 대상으로 스케줄 생성
+
+    방식:
+    - A 후보 tries개, B 후보 tries개를 각각 만든 뒤
+    - (scoreA + scoreB)가 가장 높은 조합을 최종 선택
+    """
+    cand_by_grp = {}
+
+    for grp_label, plist in group_players.items():
+        build_fn = build_fn_by_group.get(grp_label)
+        if not build_fn or not plist:
+            cand_by_grp[grp_label] = [([], -10**18)]
+            continue
+
+        cands = []
+        for _ in range(tries):
+            try:
+                s = build_fn()
+            except Exception:
+                s = []
+            sc = score_schedule(s, plist, target_games, min_guard)
+            cands.append((s, sc))
+
+        # 상위 후보만 남겨서 조합 폭 줄이기(깔끔 & 빠름)
+        cands.sort(key=lambda x: x[1], reverse=True)
+        cand_by_grp[grp_label] = cands[: max(10, tries // 3)]
+
+    # 조합 평가
+    best_combo = []
+    best_score = -10**18
+    ok = True
+
+    A_list = cand_by_grp.get("A조", [([], -10**18)])
+    B_list = cand_by_grp.get("B조", [([], -10**18)])
+
+    for sA, scA in A_list:
+        for sB, scB in B_list:
+            sc_sum = scA + scB
+
+            if sc_sum > best_score:
+                best_score = sc_sum
+                best_combo = (sA or []) + (sB or [])
+
+    # ok 판정: 양쪽 모두 min_guard 만족하는지
+    for grp_label in ["A조", "B조"]:
+        plist = group_players.get(grp_label, [])
+        if not plist:
+            continue
+        counts = count_games_from_schedule(best_combo)
+        for p in plist:
+            if counts.get(p, 0) < min_guard:
+                ok = False
+                break
+
+    return best_combo, ok
+
+import random
+from collections import defaultdict
+
+# ---------------------------------------------------------
+# ✅ 스케줄 평가 유틸
+# ---------------------------------------------------------
+def count_games_by_player(schedule):
+    counts = defaultdict(int)
+    for gt, t1, t2, court in schedule:
+        for p in list(t1) + list(t2):
+            counts[p] += 1
+    return counts
+
+
+def team_gender(team, meta):
+    genders = []
+    for n in team:
+        g = meta.get(n, {}).get("gender")
+        genders.append(g)
+    return genders
+
+
+def is_mixed_team(team, meta):
+    genders = team_gender(team, meta)
+    if len(genders) < 2:
+        return True  # 정보 부족이면 일단 통과
+    # 남/여 정확히 1명씩일 때만 "정상 혼복 팀"
+    return ("남" in genders) and ("여" in genders) and (genders.count("남") == 1) and (genders.count("여") == 1)
+
+
+def mixed_violation_count(schedule, meta):
+    bad = 0
+    for gt, t1, t2, court in schedule:
+        # 복식에서만 의미 있음
+        if len(t1) == 2 and len(t2) == 2:
+            if not is_mixed_team(t1, meta):
+                bad += 1
+            if not is_mixed_team(t2, meta):
+                bad += 1
+    return bad
+
+
+# ---------------------------------------------------------
+# ✅ 핵심 스코어 함수
+# ---------------------------------------------------------
+def score_schedule(
+    schedule,
+    players,
+    target_games,
+    min_guard,
+    meta,
+    mode_label=None,
+):
+    """
+    점수는 '클수록 좋음'
+    """
+
+    if not schedule:
+        return -10**9
+
+    counts = count_games_by_player(schedule)
+
+    # 참가자 중 누락된 사람이 있으면 0으로 처리
+    for p in players:
+        counts.setdefault(p, 0)
+
+    values = [counts[p] for p in players]
+    min_cnt = min(values)
+    max_cnt = max(values)
+    spread = max_cnt - min_cnt
+
+    # ---------------------------
+    # 1) ✅ 최소 보장 점수
+    # ---------------------------
+    below = sum(1 for v in values if v < min_guard)
+    # 최소 보장 미달은 아주 강하게 패널티
+    guard_score = -1000 * below
+
+    # ---------------------------
+    # 2) ✅ 저게임 수 우선 가중치
+    #    - 최소값이 높을수록 보너스
+    #    - 편차가 커질수록 패널티
+    # ---------------------------
+    low_games_priority = (min_cnt * 60) - (spread * 25)
+
+    # ---------------------------
+    # 3) ✅ 목표치 근접도(부드러운 보정)
+    # ---------------------------
+    # target에 가까울수록 좋게. (너무 과한 벌점은 금지)
+    dist_sum = sum(abs(v - target_games) for v in values)
+    target_score = -6 * dist_sum
+
+    # ---------------------------
+    # 4) ✅ 혼합복식 위반 패널티
+    # ---------------------------
+    mixed_score = 0
+    if mode_label == "혼합복식 (남+여 짝)":
+        bad = mixed_violation_count(schedule, meta)
+        # 팀 단위 위반이므로 상당히 크게 때림
+        mixed_score = -180 * bad
+
+    # ---------------------------
+    # ✅ 전체 합
+    # ---------------------------
+    total = guard_score + low_games_priority + target_score + mixed_score
+    return total
+
+
+# ---------------------------------------------------------
+# ✅ 단일 풀 탐색 버전
+# ---------------------------------------------------------
+def try_build_best_schedule(
+    players,
+    build_fn,
+    target_games,
+    min_guard,
+    tries=80,
+    meta=None,
+    mode_label=None,
+):
+    """
+    build_fn은 'schedule을 반환하는 함수'
+    - 이 함수 내부에서 '각 try마다 후보를 만들고'
+      score_schedule로 최고점을 고름
+    """
+    meta = meta or {}
+
+    best_schedule = []
+    best_score = -10**9
+    best_ok = False
+
+    for _ in range(tries):
+        cand = build_fn()
+        sc = score_schedule(
+            cand,
+            players=players,
+            target_games=target_games,
+            min_guard=min_guard,
+            meta=meta,
+            mode_label=mode_label,
+        )
+
+        if sc > best_score:
+            best_score = sc
+            best_schedule = cand
+            best_ok = True
+
+    # 최소 보장 만족 여부 재확인(표시용)
+    ok_min_guard = True
+    if best_schedule:
+        counts = count_games_by_player(best_schedule)
+        for p in players:
+            if counts.get(p, 0) < min_guard:
+                ok_min_guard = False
+                break
+    else:
+        ok_min_guard = False
+
+    return best_schedule, ok_min_guard
+
+
+# ---------------------------------------------------------
+# ✅ A/B조 분리 + "한쪽만 손해" 완화 버전
+# ---------------------------------------------------------
+def try_build_best_schedule_grouped(
+    group_players,
+    build_fn_by_group,
+    target_games,
+    min_guard,
+    tries=60,
+    meta=None,
+    mode_label=None,
+):
+    """
+    group_players = {"A조":[...], "B조":[...]}
+    build_fn_by_group = {"A조": fnA, "B조": fnB}
+
+    - 매 try마다 A/B 각각 후보를 만들고
+    - 조별 점수 + '조 간 불균형 패널티' 로 최종 선택
+    """
+    meta = meta or {}
+
+    best_schedule = []
+    best_score = -10**9
+
+    for _ in range(tries):
+        schedules_each = {}
+        scores_each = {}
+        ok_each = {}
+
+        # 1) 조별 후보 생성 + 조별 점수
+        for grp_label, plist in group_players.items():
+            fn = build_fn_by_group.get(grp_label)
+            if not fn or not plist:
+                schedules_each[grp_label] = []
+                scores_each[grp_label] = -10**9
+                ok_each[grp_label] = False
+                continue
+
+            cand = fn()
+            sc = score_schedule(
+                cand,
+                players=plist,
+                target_games=target_games,
+                min_guard=min_guard,
+                meta=meta,
+                mode_label=mode_label,
+            )
+
+            schedules_each[grp_label] = cand
+            scores_each[grp_label] = sc
+
+            # 최소 보장 만족 빠른 체크
+            counts = count_games_by_player(cand) if cand else {}
+            ok_each[grp_label] = all(counts.get(p, 0) >= min_guard for p in plist)
+
+        # 2) 조 점수 합산 + "한쪽만 크게 손해" 패널티
+        score_A = scores_each.get("A조", 0)
+        score_B = scores_each.get("B조", 0)
+
+        imbalance_penalty = -0.25 * abs(score_A - score_B)
+
+        combined_score = score_A + score_B + imbalance_penalty
+
+        # 3) 합쳐서 선택
+        combined_schedule = []
+        for grp_label in ["A조", "B조"]:
+            combined_schedule.extend(schedules_each.get(grp_label, []))
+
+        if combined_score > best_score:
+            best_score = combined_score
+            best_schedule = combined_schedule
+
+    # 최종 최소 보장 만족 여부(표시용)
+    ok_min_guard = True
+    for grp_label, plist in group_players.items():
+        if not plist:
+            continue
+        counts = count_games_by_player(best_schedule)
+        if any(counts.get(p, 0) < min_guard for p in plist):
+            ok_min_guard = False
+            break
+
+    return best_schedule, ok_min_guard
+
+
 # =========================================================
 # 2) 오늘 경기 세션
 # =========================================================
@@ -1941,11 +2557,16 @@ with tab2:
     # 0. 저장할 날짜 선택
     # ---------------------------------------------------------
     st.subheader("1. 저장할 날짜 선택")
+
+    if "save_date" not in st.session_state:
+        st.session_state.save_date = date.today()
+
     st.session_state.save_date = st.date_input(
         "이 날짜 기준으로 대진을 관리합니다.",
         value=st.session_state.save_date,
         key="save_date_input",
     )
+
     save_date = st.session_state.save_date
     save_date_str = save_date.strftime("%Y-%m-%d")
     st.session_state["save_target_date"] = save_date_str
@@ -1961,10 +2582,6 @@ with tab2:
     if "shuffle_count" not in st.session_state:
         st.session_state.shuffle_count = 0
 
-    # 과거 오타 키 잔재 제거
-    if "shuffle_" in st.session_state:
-        del st.session_state["shuffle_"]
-
     # ✅ 분리된 토글 state
     if "guest_mode" not in st.session_state:
         st.session_state.guest_mode = False
@@ -1978,74 +2595,54 @@ with tab2:
     # 기존 멤버 이름 목록 (players.json 기반)
     names_all_members = [p["name"] for p in roster]
 
+    # ✅ 체크박스 상호 배타 처리용 콜백
+    def _on_guest_toggle():
+        if st.session_state.get("chk_guest_mode", False):
+            st.session_state["chk_special_match"] = False
+            st.session_state.special_match = False
+            st.session_state.guest_mode = True
+        else:
+            st.session_state.guest_mode = False
+
+    def _on_special_toggle():
+        if st.session_state.get("chk_special_match", False):
+            st.session_state["chk_guest_mode"] = False
+            st.session_state.guest_mode = False
+            st.session_state.special_match = True
+        else:
+            st.session_state.special_match = False
+
     # ✅ 참가자 multiselect / (게스트추가 + 스페셜매치) 2줄 토글
     col_ms, col_sp = st.columns([3, 2])
 
-
-
-    def _on_guest_mode_change():
-        # 게스트 추가를 켰으면 스페셜 매치를 끈다
-        if st.session_state.get("chk_guest_mode", False):
-            st.session_state["chk_special_match"] = False
-            st.session_state.guest_mode = True
-            st.session_state.special_match = False
-        else:
-            st.session_state.guest_mode = False
-
-    def _on_special_match_change():
-        # 스페셜 매치를 켰으면 게스트 추가를 끈다
-        if st.session_state.get("chk_special_match", False):
-            st.session_state["chk_guest_mode"] = False
-            st.session_state.special_match = True
-            st.session_state.guest_mode = False
-        else:
-            st.session_state.special_match = False
-
     with col_sp:
-        guest_mode = st.checkbox(
+        guest_mode_ui = st.checkbox(
             "👥 게스트 추가",
-            value=st.session_state.get("guest_mode", False),
+            value=st.session_state.guest_mode,
             help="게스트를 오늘만 임시 추가합니다. 회원 명단에는 저장되지 않습니다.",
             key="chk_guest_mode",
-            on_change=_on_guest_mode_change,
+            on_change=_on_guest_toggle,
         )
 
-        special_match = st.checkbox(
+        special_match_ui = st.checkbox(
             "🌟 스페셜 매치 (교류전)",
-            value=st.session_state.get("special_match", False),
+            value=st.session_state.special_match,
             help="스페셜 매치로 저장된 날짜는 월별/개인 통계에서 제외됩니다.",
             key="chk_special_match",
-            on_change=_on_special_match_change,
+            on_change=_on_special_toggle,
         )
 
+        # state 동기화(안전장치)
+        st.session_state.guest_mode = bool(guest_mode_ui)
+        st.session_state.special_match = bool(special_match_ui)
 
     # 게스트 기능 활성 여부
     guest_enabled = bool(st.session_state.guest_mode or st.session_state.special_match)
 
-    # ─────────────────────────────────────
+    # ---------------------------------------------------------
     # 게스트 입력 UI
-    # ─────────────────────────────────────
+    # ---------------------------------------------------------
     if guest_enabled:
-        # ✅ 버튼 세로 슬림 CSS (게스트 추가/삭제만 타겟)
-        st.markdown(
-            """
-            <style>
-            div[class*="st-key-btn_del_guest_"] button {
-                padding-top: 0.15rem !important;
-                padding-bottom: 0.15rem !important;
-                min-height: 2.0rem !important;
-                line-height: 1.1 !important;
-            }
-            div[class*="st-key-btn_add_guest_once"] button {
-                white-space: nowrap !important;
-                padding-top: 0.35rem !important;
-                padding-bottom: 0.35rem !important;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-
         st.markdown(
             """
             <div style="
@@ -2065,8 +2662,8 @@ with tab2:
 
         GUEST_GROUP_OPTIONS = ["미배정", "A조", "B조"]
 
-        # ✅ 칸을 줄여서 버튼 글씨가 2줄로 안 깨지게
-        gc1, gc2, gc3, gc4, gc5 = st.columns([2.5, 1, 1.1, 1, 1.1])
+        # ✅ 칸 너비 조정(버튼 2줄 방지)
+        gc1, gc2, gc3, gc4, gc5 = st.columns([2.5, 1.0, 1.0, 1.1, 1.2])
 
         with gc1:
             guest_name = st.text_input(
@@ -2095,9 +2692,8 @@ with tab2:
                 index=0,
                 key="guest_ntrp_input",
             )
-
         with gc5:
-            st.markdown("<div style='margin-top:1.6rem;'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top:1.65rem;'></div>", unsafe_allow_html=True)
             add_guest_clicked = st.button(
                 "게스트 추가",
                 use_container_width=True,
@@ -2124,7 +2720,6 @@ with tab2:
                     st.session_state.guest_list = guest_list
                     st.session_state["guest_add_msg"] = f"게스트 '{name_clean}' 추가되었습니다."
 
-        # ✅ 메시지는 전체 폭으로
         if st.session_state.get("guest_add_msg"):
             st.success(st.session_state["guest_add_msg"])
             st.session_state["guest_add_msg"] = None
@@ -2134,7 +2729,7 @@ with tab2:
             st.markdown("#### 오늘 게스트 목록")
 
             for i, g in enumerate(guest_list, start=1):
-                c1, c2, c3 = st.columns([2, 3, 1.2])
+                c1, c2, c3 = st.columns([2.0, 3.0, 1.0])
 
                 with c1:
                     st.write(f"{i}. {g['name']}")
@@ -2152,14 +2747,14 @@ with tab2:
                         st.session_state.guest_list = guest_list
                         st.experimental_rerun()
 
-    # ─────────────────────────────────────
+    # ---------------------------------------------------------
     # ① 멤버 + ② 게스트 이름 합치기
-    # ─────────────────────────────────────
+    # ---------------------------------------------------------
     guest_names = [g["name"] for g in guest_list] if guest_enabled else []
     names_all = names_all_members + guest_names
     names_sorted = sorted(names_all, key=lambda n: n)
 
-    # 실제 multiselect (멤버 + 게스트 모두 선택 가능)
+    # 실제 multiselect
     with col_ms:
         sel_players = st.multiselect("오늘 참가 선수들", names_sorted, default=[])
 
@@ -2171,9 +2766,9 @@ with tab2:
 
     st.write(f"현재 참가 인원: {len(players_for_today)}명")
 
-    # ─────────────────────────────────────
+    # ---------------------------------------------------------
     # 게스트 정보를 roster_by_name 에 임시 주입
-    # ─────────────────────────────────────
+    # ---------------------------------------------------------
     if guest_enabled:
         for g in guest_list:
             nm = g["name"]
@@ -2189,9 +2784,9 @@ with tab2:
                 "is_guest": True,
             }
 
-    # ─────────────────────────────────────
-    # 순서 초기화 (✅ 여기 중요 수정)
-    # ─────────────────────────────────────
+    # ---------------------------------------------------------
+    # 순서 초기화
+    # ---------------------------------------------------------
     if players_for_today:
         prev = st.session_state.current_order
         if (not prev) or (set(prev) != set(players_for_today)):
@@ -2207,26 +2802,38 @@ with tab2:
     # 2. 순서 정하기
     # ---------------------------------------------------------
     st.subheader("3. 순서 정하기")
-    order_mode = st.radio("순서 방식", ["랜덤 섞기", "수동 입력"], horizontal=True)
+
+    order_mode = st.radio(
+        "순서 방식",
+        ["랜덤 섞기", "수동 입력"],
+        horizontal=True,
+        key="order_mode_radio",
+    )
 
     if order_mode == "랜덤 섞기":
-        cb, ci = st.columns([1, 2])  # 버튼 영역을 넓힘
-        
+        cb, ci = st.columns([1.6, 2.4])  # ✅ 버튼 폭 확보
+
         with cb:
-            if st.button("랜덤으로 순서 섞기", use_container_width=True):
+            st.markdown('<div class="main-primary-btn">', unsafe_allow_html=True)
+            if st.button("랜덤으로 순서 섞기", use_container_width=True, key="btn_shuffle_order"):
                 random.shuffle(current_order)
                 st.session_state.current_order = current_order
                 st.session_state.shuffle_count += 1
-        
+            st.markdown("</div>", unsafe_allow_html=True)
+
         with ci:
             st.write(f"섞은 횟수: {st.session_state.shuffle_count} 회")
 
     else:
         default_text = "\n".join(current_order) if current_order else ""
         text = st.text_area(
-            "한 줄에 한 명씩 이름을 입력 (선택한 사람들만)", value=default_text, height=140
+            "한 줄에 한 명씩 이름을 입력 (선택한 사람들만)",
+            value=default_text,
+            height=140,
+            key="manual_order_text",
         )
-        if st.button("수동 순서 적용"):
+
+        if st.button("수동 순서 적용", key="btn_apply_manual_order"):
             lines = [l.strip() for l in text.split("\n") if l.strip()]
 
             if not lines:
@@ -2250,6 +2857,7 @@ with tab2:
             ["전체", "조별 분리 (A/B조)"],
             horizontal=True,
             index=default_idx,
+            key="order_view_mode_radio",
         )
         st.session_state.order_view_mode = view_mode
 
@@ -2263,7 +2871,6 @@ with tab2:
                 name: roster_by_name.get(name, {}).get("group", "미배정")
                 for name in current_order
             }
-
             a_list = [p for p in current_order if groups.get(p) == "A조"]
             b_list = [p for p in current_order if groups.get(p) == "B조"]
 
@@ -2291,12 +2898,13 @@ with tab2:
     # ---------------------------------------------------------
     st.subheader("4. 대진 설정")
 
-    gtype = st.radio("게임 타입", ["복식", "단식"], horizontal=True)
+    gtype = st.radio("게임 타입", ["복식", "단식"], horizontal=True, key="gtype_radio")
 
     mode_label = None
     singles_mode = None
     is_aa_mode = False
 
+    # 3-1. 모드 선택
     if gtype == "복식":
         doubles_modes = [
             "랜덤 복식",
@@ -2304,19 +2912,18 @@ with tab2:
             "혼합복식 (남+여 짝)",
             "한울 AA 방식 (4게임 고정)",
         ]
-        mode_label = st.selectbox(
-            "복식 대진 방식",
-            doubles_modes,
-            index=3,
-        )
+        mode_label = st.selectbox("복식 대진 방식", doubles_modes, index=3, key="doubles_mode_sel")
         is_aa_mode = (mode_label == "한울 AA 방식 (4게임 고정)")
     else:
         singles_mode = st.selectbox(
             "단식 대진 방식",
             ["랜덤 단식", "동성 단식", "혼합 단식"],
+            key="singles_mode_sel",
         )
 
+    # 3-2. 개인당 경기 수 / 코트 수
     cg1, cg2 = st.columns(2)
+
     with cg1:
         if gtype == "복식" and is_aa_mode:
             max_games = st.number_input(
@@ -2326,6 +2933,7 @@ with tab2:
                 value=4,
                 step=1,
                 disabled=True,
+                key="max_games_aa",
             )
         else:
             max_games = st.number_input(
@@ -2334,6 +2942,7 @@ with tab2:
                 max_value=10,
                 value=4,
                 step=1,
+                key="max_games_normal",
             )
 
     with cg2:
@@ -2345,31 +2954,42 @@ with tab2:
                 value=2,
                 step=1,
                 disabled=True,
+                key="court_aa",
             )
         else:
             court_count = st.number_input(
-                "사용 코트 수", min_value=1, max_value=6, value=2, step=1
+                "사용 코트 수",
+                min_value=1,
+                max_value=6,
+                value=2,
+                step=1,
+                key="court_normal",
             )
 
+    # 3-3. NTRP / 조별 옵션
     opt1, opt2 = st.columns(2)
+
     with opt1:
         if gtype == "복식" and is_aa_mode:
             use_ntrp = st.checkbox(
                 "NTRP 고려 (비슷한 실력끼리 매칭)",
                 value=False,
                 disabled=True,
+                key="chk_ntrp_aa",
             )
         else:
-            use_ntrp = st.checkbox("NTRP 고려 (비슷한 실력끼리 매칭)")
+            use_ntrp = st.checkbox("NTRP 고려 (비슷한 실력끼리 매칭)", key="chk_ntrp")
+
     with opt2:
         if gtype == "복식" and is_aa_mode:
             group_only_option = st.checkbox(
                 "조별로만 매칭 (A/B조만)",
                 value=False,
                 disabled=True,
+                key="chk_group_only_aa",
             )
         else:
-            group_only_option = st.checkbox("조별로만 매칭 (A/B조만)")
+            group_only_option = st.checkbox("조별로만 매칭 (A/B조만)", key="chk_group_only")
 
     view_mode_for_schedule = st.session_state.get("order_view_mode", "전체")
     group_only = group_only_option or (view_mode_for_schedule == "조별 분리 (A/B조)")
@@ -2399,6 +3019,9 @@ with tab2:
             schedule = []
             st.session_state.target_games = None
 
+            # ✅ 최소 -1 보장 값
+            min_games_guard = max(1, max_games - 1)
+
             # 🔹 게스트 메타 포함한 매칭용 meta 딕셔너리
             guest_list = st.session_state.get("guest_list", [])
             meta_for_match = dict(roster_by_name)
@@ -2416,7 +3039,9 @@ with tab2:
                     "is_guest": True,
                 }
 
+            # ---------------------------
             # 4-1. 한울 AA 모드
+            # ---------------------------
             if is_aa_mode:
                 view_mode_for_schedule = st.session_state.get("order_view_mode", "전체")
 
@@ -2445,6 +3070,7 @@ with tab2:
                         combined.extend(sub_schedule)
 
                     schedule = combined
+
                 else:
                     n = len(players_selected)
                     if n < 5 or n > 16:
@@ -2456,13 +3082,17 @@ with tab2:
 
                 st.session_state.today_schedule = schedule
                 st.session_state.target_games = 4
+                st.session_state.min_games_guard = 4
 
                 if not schedule:
                     st.warning("조건에 맞는 한울 AA 대진을 만들지 못했습니다.")
                 else:
                     st.success("한울 AA 방식 대진표 생성 완료! (개인당 4게임 고정)")
 
+            # ---------------------------
             # 4-2. 일반 랜덤/동성/혼복 모드
+            # ✅ 스코어링 기반 탐색
+            # ---------------------------
             else:
                 if gtype == "복식":
                     unit = 4
@@ -2481,6 +3111,7 @@ with tab2:
 
                 can_generate = True
 
+                # 공평 경기수 가능 여부 체크(기존 룰 유지)
                 if group_only:
                     group_players = {"A조": [], "B조": []}
                     for p in players_selected:
@@ -2492,9 +3123,11 @@ with tab2:
                         grp_list = group_players[grp_label]
                         if not grp_list:
                             continue
+
                         if len(grp_list) < (4 if gtype == "복식" else 2):
                             st.warning(f"{grp_label} 인원이 부족하여 대진을 만들 수 없습니다.")
                             continue
+
                         needed = len(grp_list) * max_games
                         if needed % unit != 0:
                             st.error(
@@ -2509,6 +3142,7 @@ with tab2:
                     ):
                         st.error("A조/B조 모두 인원이 부족하거나 조건이 맞지 않습니다.")
                         can_generate = False
+
                 else:
                     needed = len(players_selected) * max_games
                     if needed % unit != 0:
@@ -2518,24 +3152,33 @@ with tab2:
                         )
                         can_generate = False
 
+                # ✅ 스케줄 생성(스코어링)
                 if can_generate:
+                    ok_min_guard = True
+
+                    # -----------------------
+                    # A/B조 분리 스코어링
+                    # -----------------------
                     if group_only:
-                        combined = []
                         group_players = {"A조": [], "B조": []}
                         for p in players_selected:
                             grp = roster_by_name.get(p, {}).get("group", "미배정")
                             if grp in ("A조", "B조"):
                                 group_players[grp].append(p)
 
+                        build_fn_by_group = {}
+
                         for grp_label in ["A조", "B조"]:
                             grp_list = group_players[grp_label]
                             if not grp_list:
                                 continue
+
                             if gtype == "복식":
                                 if len(grp_list) < 4:
                                     continue
-                                sub_schedule = build_doubles_schedule(
-                                    grp_list,
+
+                                build_fn_by_group[grp_label] = lambda gl=grp_list: build_doubles_schedule(
+                                    random.sample(gl, len(gl)),
                                     max_games,
                                     court_count,
                                     mode_map[mode_label],
@@ -2543,12 +3186,40 @@ with tab2:
                                     False,
                                     meta_for_match,
                                 )
-                                combined.extend(sub_schedule)
-                        schedule = combined
+                            else:
+                                if len(grp_list) < 2:
+                                    continue
+
+                                build_fn_by_group[grp_label] = lambda gl=grp_list: build_singles_schedule(
+                                    random.sample(gl, len(gl)),
+                                    max_games,
+                                    court_count,
+                                    mode_map_s[singles_mode],
+                                    use_ntrp,
+                                    False,
+                                    meta_for_match,
+                                )
+
+                        schedule, ok_min_guard = try_build_best_schedule_grouped(
+                            group_players,
+                            build_fn_by_group,
+                            target_games=max_games,
+                            min_guard=min_games_guard,
+                            tries=90,
+                            meta=meta_for_match,
+                            mode_label=mode_label if gtype == "복식" else None,
+                        )
+
+
+
+                    # -----------------------
+                    # 전체 스코어링
+                    # -----------------------
                     else:
+
                         if gtype == "복식":
-                            schedule = build_doubles_schedule(
-                                players_selected,
+                            build_fn = lambda ps=players_selected: build_doubles_schedule(
+                                random.sample(ps, len(ps)),  # ✅ 매 시도마다 순서 랜덤화
                                 max_games,
                                 court_count,
                                 mode_map[mode_label],
@@ -2557,8 +3228,8 @@ with tab2:
                                 meta_for_match,
                             )
                         else:
-                            schedule = build_singles_schedule(
-                                players_selected,
+                            build_fn = lambda ps=players_selected: build_singles_schedule(
+                                random.sample(ps, len(ps)),
                                 max_games,
                                 court_count,
                                 mode_map_s[singles_mode],
@@ -2567,13 +3238,40 @@ with tab2:
                                 meta_for_match,
                             )
 
+                            mode_for_score = singles_mode
+
+                        schedule, ok_min_guard = try_build_best_schedule(
+                            players_selected,
+                            build_fn,
+                            target_games=max_games,
+                            min_guard=min_games_guard,
+                            tries=120,
+                            meta=meta_for_match,
+                            mode_label=mode_label if gtype == "복식" else None,
+                        )
+
+
+                    # ✅ 혼합복식이면 팀 재배치 후처리
+                    if gtype == "복식" and mode_label == "혼합복식 (남+여 짝)":
+                        schedule = normalize_mixed_schedule(schedule, meta_for_match)
+
                     st.session_state.today_schedule = schedule
                     st.session_state.target_games = max_games
+                    st.session_state.min_games_guard = min_games_guard
 
                     if not schedule:
                         st.warning("조건에 맞는 대진을 만들지 못했습니다.")
                     else:
-                        st.success("대진표 생성 완료!")
+                        if ok_min_guard:
+                            if group_only:
+                                st.success(f"대진표 생성 완료! (A/B조 각각 최소 {min_games_guard}경기 보장)")
+                            else:
+                                st.success(f"대진표 생성 완료! (최소 {min_games_guard}경기 보장)")
+                        else:
+                            st.warning(
+                                f"최소 {min_games_guard}경기 보장 조건을 완벽히 만족하는 "
+                                "대진을 찾지 못해, 가장 균형 좋은 대진을 표시합니다."
+                            )
 
     # ---------------------------------------------------------
     # 생성된 대진표 표시
@@ -2584,9 +3282,7 @@ with tab2:
         view_mode_for_schedule = st.session_state.get("order_view_mode", "전체")
 
         if view_mode_for_schedule == "조별 분리 (A/B조)":
-            games_A = []
-            games_B = []
-            games_other = []
+            games_A, games_B, games_other = [], [], []
 
             for idx, (gtype_each, t1, t2, court) in enumerate(schedule, start=1):
                 all_players = list(t1) + list(t2)
@@ -2615,7 +3311,6 @@ with tab2:
 
             render_game_list("A조 대진표", games_A)
             render_game_list("B조 대진표", games_B)
-
             if games_other:
                 render_game_list("조가 섞인 경기 / 기타", games_other)
 
@@ -2633,10 +3328,7 @@ with tab2:
     # 5. 대진표 저장
     # ---------------------------------------------------------
     if schedule:
-        target_date = st.session_state.get(
-            "save_target_date",
-            date.today().strftime("%Y-%m-%d"),
-        )
+        target_date = st.session_state.get("save_target_date", date.today().strftime("%Y-%m-%d"))
 
         st.markdown(
             f"""
@@ -2659,7 +3351,7 @@ with tab2:
         if "show_overwrite_confirm" not in st.session_state:
             st.session_state["show_overwrite_confirm"] = False
 
-        if st.button("💾 이 날짜로 대진 저장 / 덮어쓰기", use_container_width=True):
+        if st.button("💾 이 날짜로 대진 저장 / 덮어쓰기", use_container_width=True, key="btn_save_schedule"):
             sessions = st.session_state.get("sessions", {})
             day_data = sessions.get(target_date, {})
 
@@ -2741,12 +3433,10 @@ with tab2:
                 )
                 day_data["score_view_lock"] = (order_mode_for_scores == "전체")
 
-                # 🔸 스페셜 매치 여부 저장 (덮어쓰기에도)
                 day_data["special_match"] = bool(st.session_state.get("special_match", False))
                 day_data["is_special_match"] = bool(st.session_state.get("special_match", False))
                 day_data["guests"] = st.session_state.get("guest_list", [])
 
-                # 🔒 조 스냅샷 갱신
                 group_snapshot = {}
                 for gtype_each, t1, t2, court in schedule:
                     for name in t1 + t2:
@@ -2765,6 +3455,7 @@ with tab2:
             if overwrite_no:
                 st.session_state["show_overwrite_confirm"] = False
                 st.info("덮어쓰기를 취소했습니다.")
+
     else:
         st.info("생성된 대진표가 없습니다.")
 
@@ -2773,9 +3464,10 @@ with tab2:
     # ---------------------------------------------------------
     if schedule:
         st.markdown("---")
-        st.subheader("5. 개인당 경기 수 (이번 대진 기준)")
+        st.subheader("6. 개인당 경기 수 (이번 대진 기준)")
 
         target_games = st.session_state.get("target_games", None)
+        min_guard = st.session_state.get("min_games_guard", None)
 
         game_counts = defaultdict(int)
         for gt, t1, t2, court in schedule:
@@ -2786,15 +3478,12 @@ with tab2:
             badge = render_name_badge(name, roster_by_name)
             st.markdown(f"{badge} : {game_counts[name]} 경기", unsafe_allow_html=True)
 
-        if target_games is not None and any(
-            cnt != target_games for cnt in game_counts.values()
-        ):
-            st.warning(
-                f"⚠ 일부 선수는 목표 경기 수({target_games}경기)를 채우지 못했습니다. "
-                "인원/조건을 조정해 주세요."
-            )
-
-
+        if min_guard is not None:
+            if any(cnt < min_guard for cnt in game_counts.values()):
+                st.warning(
+                    f"⚠ 일부 선수는 최소 보장({min_guard}경기)을 채우지 못했습니다. "
+                    "조건을 조정하거나 다시 생성해 주세요."
+                )
 # =========================================================
 # 3) 경기 기록 / 통계 (날짜별)
 # =========================================================
