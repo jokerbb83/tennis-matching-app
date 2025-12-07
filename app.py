@@ -11,6 +11,14 @@ import plotly.express as px
 
 
 
+# ---------------------------------------------------------
+# Streamlit 초기화
+# ---------------------------------------------------------
+st.set_page_config(
+    page_title="마리아 상암포바 도우미 MSA (Beta)",
+    layout="centered",             # wide → centered 로 변경 (폰에서 덜 퍼져 보이게)
+    initial_sidebar_state="collapsed",
+)
 
 
 
@@ -1795,26 +1803,21 @@ def mini_subtitle_card(title: str, description: str = "", emoji: str = "📝"):
 
 
 
-# ---------------------------------------------------------
-# Streamlit 초기화
-# ---------------------------------------------------------
-st.set_page_config(
-    page_title="마리아 상암포바 도우미 MSA (Beta)",
-    layout="centered",             # wide → centered 로 변경 (폰에서 덜 퍼져 보이게)
-    initial_sidebar_state="collapsed",
-)
 
 
 
 DISABLE_SELECTBOX_KEYBOARD = """
 <style>
-/* 📱 모바일에서 selectbox 터치 시 키보드 안 뜨게 */
-div[data-baseweb="select"] input {
-    pointer-events: none !important;   /* 입력창 포커스 막기 */
+/* 📱 모바일에서만 selectbox 키보드 방지 */
+@media (max-width: 768px) {
+    div[data-baseweb="select"] input {
+        pointer-events: none !important;
+    }
 }
 </style>
 """
 st.markdown(DISABLE_SELECTBOX_KEYBOARD, unsafe_allow_html=True)
+
 
 
 
@@ -2043,7 +2046,7 @@ mobile_mode = st.checkbox(
     help="핸드폰으로 볼 때 켜 두는 걸 추천!"
 )
 
-
+st.session_state["mobile_mode"] = mobile_mode
 
 
 MOBILE_SCORE_ROW_CSS = """
@@ -3906,6 +3909,7 @@ with tab2:
 # 3) 경기 기록 / 통계 (날짜별)
 # =========================================================
 
+mobile_mode = st.session_state.get("mobile_mode", False)
 
 with tab3:
     section_card("경기 기록 / 통계", "📊")
@@ -3990,6 +3994,40 @@ with tab3:
         summary_container = st.container()
 
         st.markdown("---")
+
+
+        # -----------------------------
+        # ✅ PC에서만 스코어 입력 줄바꿈 방지 CSS
+        # -----------------------------
+        if not mobile_mode:
+            st.markdown("""
+            <style>
+            /* PC에서 라디오 옵션 가로 고정 + 줄바꿈 방지 */
+            .stRadio [role="radiogroup"]{
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                gap: 0.7rem !important;
+                align-items: center !important;
+            }
+            .stRadio label, .stRadio label span{
+                white-space: nowrap !important;
+            }
+        
+            /* 너가 이미 쓰는 이름 배지 class */
+            .name-badge{
+                white-space: nowrap !important;
+                display: inline-block !important;
+            }
+        
+            /* score-row 안에서도 텍스트 줄바꿈 방지(안전장치) */
+            .score-row *{
+                white-space: nowrap !important;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+
+
 
         # -----------------------------
         # 2. 경기 스코어 입력 + 점수 잠금
@@ -4226,9 +4264,15 @@ with tab3:
                         idx_t2 = t2_side_options.index(default_t2)
 
                         # 🔹 레이아웃: [왼쪽 라디오] [팀1 점수] [VS] [팀2 점수] [오른쪽 라디오]
-                        col_t1_side, col_s1, col_vs, col_s2, col_t2_side = st.columns(
-                            [2.7, 1.1, 0.7, 1.1, 2.7]
-                        )
+                        if mobile_mode:
+                            col_t1_side, col_s1, col_vs, col_s2, col_t2_side = st.columns(
+                                [2.7, 1.1, 0.7, 1.1, 2.7]
+                            )
+                        else:
+                            # ✅ PC에서는 좌우를 확 넓혀서 이름이 절대 안 꺾이게
+                            col_t1_side, col_s1, col_vs, col_s2, col_t2_side = st.columns(
+                                [3.8, 0.9, 0.4, 0.9, 3.8]
+                            )
 
                         # 왼쪽 팀 (유대한 / 배성균 / 모름)
                         with col_t1_side:
@@ -4310,7 +4354,11 @@ with tab3:
                             f"<div class='score-row' id='score-row-{sel_date}-{idx}'>",
                             unsafe_allow_html=True,
                         )
-                        cols = st.columns([3, 1, 0.7, 1, 3])
+                        if mobile_mode:
+                            cols = st.columns([3, 1, 0.7, 1, 3])
+                        else:
+                            cols = st.columns([4, 0.9, 0.4, 0.9, 4])
+
 
                         with cols[0]:
                             st.markdown(
