@@ -20,6 +20,25 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# ---------- 모바일에서 selectbox 키보드 뜨는 문제 방지 ----------
+st.markdown("""
+<style>
+/* 📱 모바일 화면에서만 적용 */
+@media (max-width: 768px) {
+
+  /* Streamlit selectbox 내부 input 포커스/클릭 차단 */
+  div[data-baseweb="select"] input {
+      pointer-events: none !important;
+      caret-color: transparent !important;
+  }
+
+  /* 혹시 모를 다른 변형 케이스도 함께 커버 */
+  div[data-baseweb="select"] [type="search"] {
+      pointer-events: none !important;
+  }
+}
+</style>
+""", unsafe_allow_html=True)
 
 
 
