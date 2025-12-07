@@ -3385,7 +3385,6 @@ with tab2:
                 # -------------------------------------------------
                 if order_view_mode == "조별 분리 (A/B조)":
 
-                    # ✅ 현재 순서 기준으로 A/B 리스트 추출
                     group_map = {
                         p: roster_by_name.get(p, {}).get("group", "미배정")
                         for p in players_selected
@@ -3394,11 +3393,23 @@ with tab2:
                     a_list = [p for p in current_order if group_map.get(p) == "A조"]
                     b_list = [p for p in current_order if group_map.get(p) == "B조"]
 
-                    # ✅ 조별 인원 체크
                     valid_sizes = set(range(5, 17))  # 5~16
 
                     schedule_A = []
                     schedule_B = []
+
+                    # ✅ 조별 분리 상태에서 시드 자동 분리 준비
+                    seed_enabled = st.session_state.get("aa_seed_enabled", False)
+                    seed_all = st.session_state.get("aa_seed_players", []) or []
+
+                    seed_A = [
+                        p for p in seed_all
+                        if roster_by_name.get(p, {}).get("group") == "A조"
+                    ]
+                    seed_B = [
+                        p for p in seed_all
+                        if roster_by_name.get(p, {}).get("group") == "B조"
+                    ]
 
                     # ---- A조 생성 ----
                     if len(a_list) in valid_sizes:
@@ -3406,8 +3417,13 @@ with tab2:
                         if order_mode == "자동":
                             random.shuffle(base_A)
 
-                        # ✅ 조별 분리 AA에서는 시드 옵션 비적용(안전)
-                        final_A = base_A
+                        # ✅ A조 시드만 A조 슬롯에 적용
+                        final_A = apply_aa_seeds(
+                            players_selected=a_list,
+                            base_order=base_A,
+                            seed_enabled=seed_enabled,
+                            seed_players=seed_A,
+                        )
 
                         schedule_A = build_hanul_aa_schedule(final_A, court_count)
                     elif len(a_list) > 0:
@@ -3419,25 +3435,25 @@ with tab2:
                         if order_mode == "자동":
                             random.shuffle(base_B)
 
-                        # ✅ 조별 분리 AA에서는 시드 옵션 비적용(안전)
-                        final_B = base_B
+                        # ✅ B조 시드만 B조 슬롯에 적용
+                        final_B = apply_aa_seeds(
+                            players_selected=b_list,
+                            base_order=base_B,
+                            seed_enabled=seed_enabled,
+                            seed_players=seed_B,
+                        )
 
                         schedule_B = build_hanul_aa_schedule(final_B, court_count)
                     elif len(b_list) > 0:
                         st.warning(f"B조 한울 AA는 5~16명만 가능해. (현재 B조 {len(b_list)}명)")
 
-                    # ✅ 둘 다 없으면 종료
                     if not schedule_A and not schedule_B:
                         st.error("A조/B조 모두 한울 AA 조건을 만족하지 못했어.")
                     else:
-                        # ✅ 합치기
                         merged = []
                         merged.extend(schedule_A)
                         merged.extend(schedule_B)
 
-                        # ✅ 코트 번호 재정렬(보기 깔끔하게)
-                        #    (조별 생성 시 내부에서 court가 이미 붙지만,
-                        #     합친 뒤 다시 1~court_count로 재할당)
                         normalized = []
                         for i, (gt, t1, t2, _) in enumerate(merged):
                             court = (i % max(1, court_count)) + 1
