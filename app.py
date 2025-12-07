@@ -20,6 +20,66 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+import streamlit as st
+import streamlit.components.v1 as components
+
+st.set_page_config(
+    page_title="...",
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
+
+# ✅ 모바일에서만 selectbox 키보드 방지 (JS)
+components.html(
+    """
+    <script>
+    (function() {
+      function isMobile() {
+        return window.matchMedia("(max-width: 768px)").matches;
+      }
+
+      function patchSelectInputs() {
+        if (!isMobile()) return;
+
+        const inputs = document.querySelectorAll('div[data-baseweb="select"] input');
+        inputs.forEach((inp) => {
+          // 키보드 유발 요소 제거
+          inp.setAttribute('readonly', 'true');
+          inp.setAttribute('inputmode', 'none');
+	  inp.setAttribute('tabindex', '-1');
+          inp.setAttribute('autocomplete', 'off');
+          inp.setAttribute('autocorrect', 'off');
+          inp.setAttribute('autocapitalize', 'off');
+          inp.setAttribute('spellcheck', 'false');
+
+          // 혹시 클릭으로 포커스가 가면 즉시 해제
+          inp.addEventListener('focus', (e) => {
+            e.target.blur();
+          }, { passive: true });
+
+          // 클릭도 막아보기
+          inp.style.pointerEvents = "none";
+          inp.style.caretColor = "transparent";
+        });
+      }
+
+      // 최초 실행
+      patchSelectInputs();
+
+      // Streamlit은 렌더가 자주 바뀌니까 관찰자 붙이기
+      const observer = new MutationObserver(() => {
+        patchSelectInputs();
+      });
+
+      observer.observe(document.body, { childList: true, subtree: true });
+    })();
+    </script>
+    """,
+    height=0,
+)
+
+
+
 # ---------- 모바일에서 selectbox 키보드 뜨는 문제 방지 ----------
 st.markdown("""
 <style>
