@@ -4112,25 +4112,6 @@ with tab3:
         # 2. 경기 스코어 입력 + 점수 잠금
         # -----------------------------
 
-        # 🟡 제목과 점수 잠금을 한 줄에 나란히 배치
-        col_title, col_lock = st.columns([5, 2])
-
-        with col_title:
-            st.subheader("2. 경기 스코어 입력")
-
-        with col_lock:
-            scores_locked = st.checkbox(
-                "🔒 점수 잠금",
-                value=day_data.get("scores_locked", False),
-                help="체크하면 이 날짜의 점수를 수정할 수 없습니다.",
-            )
-
-        # 잠금 상태가 바뀌면 날짜 데이터에 저장
-        if scores_locked != day_data.get("scores_locked", False):
-            day_data["scores_locked"] = scores_locked
-            sessions[sel_date] = day_data
-            st.session_state.sessions = sessions
-            save_sessions(sessions)
 
 
         # 복식 게임 포함 여부 체크 (단식이면 안내문 숨김)
@@ -4208,23 +4189,69 @@ with tab3:
                     color = "#6b7280"   # 회색
                     bg = "#f3f4f6"
 
-                # 헤더 박스
-                st.markdown(
-                    f"""
-                    <div style="
-                        margin-top: 1.2rem;
-                        padding: 0.5rem 0.8rem;
-                        border-radius: 10px;
-                        background-color: {bg};
-                        border: 1px solid {color}33;
-                    ">
-                        <span style="font-weight:700; font-size:1.02rem; color:{color};">
-                            {title}
-                        </span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+
+                # 🔒 이 날짜의 잠금 상태
+                lock_key = f"{sel_date}_scores_locked"
+                locked = day_data.get("scores_locked", False)
+
+                # A조 헤더에만 잠금 체크박스 붙이기 (중복 방지)
+                if "A조" in title:
+                    col_h, col_ck = st.columns([6, 2], vertical_alignment="center")
+                
+                    with col_h:
+                        st.markdown(
+                            f"""
+                            <div style="
+                                margin-top: 1.2rem;
+                                padding: 0.5rem 0.8rem;
+                                border-radius: 10px;
+                                background-color: {bg};
+                                border: 1px solid {color}33;
+                            ">
+                                <span style="font-weight:700; font-size:1.02rem; color:{color};">
+                                    {title}
+                                </span>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                    with col_ck:
+                        scores_locked = st.checkbox(
+                            "🔒 점수 잠금",
+                            key=lock_key,
+                            value=locked,
+                            help="체크하면 이 날짜의 점수를 수정할 수 없습니다.",
+                        )
+
+                    # 잠금 상태 저장
+                    if scores_locked != locked:
+                        day_data["scores_locked"] = scores_locked
+                        sessions[sel_date] = day_data
+                        st.session_state.sessions = sessions
+                        save_sessions(sessions)
+                
+                    locked = scores_locked
+
+                else:
+                    # B조/기타/전체는 헤더만
+                    st.markdown(
+                        f"""
+                        <div style="
+                            margin-top: 1.2rem;
+                            padding: 0.5rem 0.8rem;
+                            border-radius: 10px;
+                            background-color: {bg};
+                            border: 1px solid {color}33;
+                        ">
+                            <span style="font-weight:700; font-size:1.02rem; color:{color};">
+                                {title}
+                            </span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
 
                 # 배지 모양 이름 줄 (성별에 따라 배경색 다르게)
                 def render_name_pills(players):
@@ -5774,7 +5801,7 @@ with tab5:
                             🏅 선수별 BEST
                         </div>
                         <ul style="padding-left:1.1rem;margin:0;font-size:0.9rem;">
-                            <li>🎯 노자비왕&nbsp;:&nbsp;{diff_line}</li>
+                            <li>🎯 격차왕&nbsp;:&nbsp;{diff_line}</li>
                             <li>🤝 우정왕&nbsp;:&nbsp;{partner_line}</li>
                             <li>👑 출석왕&nbsp;:&nbsp;{attendance_line}</li>
                             <li>🔥 연승왕&nbsp;:&nbsp;{streak_line}</li>
