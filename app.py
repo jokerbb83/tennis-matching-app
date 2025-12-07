@@ -3369,43 +3369,125 @@ with tab2:
 
 
             # ---------------------------
-            # 4-1. ✅ 한울 AA 모드 (시드 반영 포함)
+            # 4-1. ✅ 한울 AA 모드 (조별 분리 지원)
             # ---------------------------
             if gtype == "복식" and is_aa_mode:
 
                 n = len(players_selected)
-                if n < 5 or n > 16:
-                    st.error(f"한울 AA 방식은 5명 이상 16명 이하에서만 사용할 수 있습니다. (현재 인원: {n}명)")
+
+                # ✅ 순서 표시 모드 확인
+                order_view_mode = st.session_state.get("order_view_mode", "전체")
+                order_mode = st.session_state.get("order_mode", "자동")
+
+                # -------------------------------------------------
+                # ✅ 4-1-A) 조별 분리(A/B조)일 때:
+                #    A조 한울AA + B조 한울AA 를 "각각" 생성
+                # -------------------------------------------------
+                if order_view_mode == "조별 분리 (A/B조)":
+
+                    # ✅ 현재 순서 기준으로 A/B 리스트 추출
+                    group_map = {
+                        p: roster_by_name.get(p, {}).get("group", "미배정")
+                        for p in players_selected
+                    }
+
+                    a_list = [p for p in current_order if group_map.get(p) == "A조"]
+                    b_list = [p for p in current_order if group_map.get(p) == "B조"]
+
+                    # ✅ 조별 인원 체크
+                    valid_sizes = set(range(5, 17))  # 5~16
+
+                    schedule_A = []
+                    schedule_B = []
+
+                    # ---- A조 생성 ----
+                    if len(a_list) in valid_sizes:
+                        base_A = a_list.copy()
+                        if order_mode == "자동":
+                            random.shuffle(base_A)
+
+                        # ✅ 조별 분리 AA에서는 시드 옵션 비적용(안전)
+                        final_A = base_A
+
+                        schedule_A = build_hanul_aa_schedule(final_A, court_count)
+                    elif len(a_list) > 0:
+                        st.warning(f"A조 한울 AA는 5~16명만 가능해. (현재 A조 {len(a_list)}명)")
+
+                    # ---- B조 생성 ----
+                    if len(b_list) in valid_sizes:
+                        base_B = b_list.copy()
+                        if order_mode == "자동":
+                            random.shuffle(base_B)
+
+                        # ✅ 조별 분리 AA에서는 시드 옵션 비적용(안전)
+                        final_B = base_B
+
+                        schedule_B = build_hanul_aa_schedule(final_B, court_count)
+                    elif len(b_list) > 0:
+                        st.warning(f"B조 한울 AA는 5~16명만 가능해. (현재 B조 {len(b_list)}명)")
+
+                    # ✅ 둘 다 없으면 종료
+                    if not schedule_A and not schedule_B:
+                        st.error("A조/B조 모두 한울 AA 조건을 만족하지 못했어.")
+                    else:
+                        # ✅ 합치기
+                        merged = []
+                        merged.extend(schedule_A)
+                        merged.extend(schedule_B)
+
+                        # ✅ 코트 번호 재정렬(보기 깔끔하게)
+                        #    (조별 생성 시 내부에서 court가 이미 붙지만,
+                        #     합친 뒤 다시 1~court_count로 재할당)
+                        normalized = []
+                        for i, (gt, t1, t2, _) in enumerate(merged):
+                            court = (i % max(1, court_count)) + 1
+                            normalized.append((gt, t1, t2, court))
+
+                        schedule = normalized
+
+                        st.session_state.today_schedule = schedule
+                        st.session_state.target_games = 4
+                        st.session_state.min_games_guard = 4
+
+                        st.success("한울 AA (A조/B조 분리) 대진표 생성 완료!")
+
+                # -------------------------------------------------
+                # ✅ 4-1-B) 전체 모드일 때:
+                #    기존 방식 그대로 (시드 반영)
+                # -------------------------------------------------
                 else:
-                    order_mode = st.session_state.get("order_mode", "자동")
-
-                    # ✅ 자동이면 생성 때마다 base를 새로 섞음
-                    #    -> 시드 슬롯은 고정 + 나머지만 랜덤 회전 효과
-                    if order_mode == "자동":
-                        base_order = players_selected.copy()
-                        random.shuffle(base_order)
+                    if n < 5 or n > 16:
+                        st.error(
+                            f"한울 AA 방식은 5명 이상 16명 이하에서만 사용할 수 있습니다. "
+                            f"(현재 인원: {n}명)"
+                        )
                     else:
-                        base_order = players_selected.copy()
+                        # ✅ 자동이면 생성 때마다 base를 새로 섞음
+                        if order_mode == "자동":
+                            base_order = players_selected.copy()
+                            random.shuffle(base_order)
+                        else:
+                            base_order = players_selected.copy()
 
-                    # ✅ 시드 적용
-                    final_order = apply_aa_seeds(
-                        players_selected=players_selected,
-                        base_order=base_order,
-                        seed_enabled=st.session_state.get("aa_seed_enabled", False),
-                        seed_players=st.session_state.get("aa_seed_players", []),
-                    )
+                        # ✅ 시드 적용
+                        final_order = apply_aa_seeds(
+                            players_selected=players_selected,
+                            base_order=base_order,
+                            seed_enabled=st.session_state.get("aa_seed_enabled", False),
+                            seed_players=st.session_state.get("aa_seed_players", []),
+                        )
 
-                    # ✅ 한울 AA 스케줄 생성은 final_order 기준
-                    schedule = build_hanul_aa_schedule(final_order, court_count)
+                        # ✅ 한울 AA 스케줄 생성은 final_order 기준
+                        schedule = build_hanul_aa_schedule(final_order, court_count)
 
-                    st.session_state.today_schedule = schedule
-                    st.session_state.target_games = 4
-                    st.session_state.min_games_guard = 4
+                        st.session_state.today_schedule = schedule
+                        st.session_state.target_games = 4
+                        st.session_state.min_games_guard = 4
 
-                    if not schedule:
-                        st.warning("조건에 맞는 한울 AA 대진을 만들지 못했습니다.")
-                    else:
-                        st.success("한울 AA 방식 대진표 생성 완료! (개인당 4게임 고정)")
+                        if not schedule:
+                            st.warning("조건에 맞는 한울 AA 대진을 만들지 못했습니다.")
+                        else:
+                            st.success("한울 AA 방식 대진표 생성 완료! (개인당 4게임 고정)")
 
 
             # ---------------------------
@@ -5559,3 +5641,4 @@ with tab5:
                     """,
                     unsafe_allow_html=True,
                 )
+
