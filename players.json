@@ -84,7 +84,7 @@
     "age_group": "30대",
     "gender": "여",
     "hand": "오른손",
-    "racket": "헤드",
+    "racket": "윌슨",
     "group": "B조",
     "ntrp": 2.0,
     "mbti": "모름"
@@ -97,7 +97,7 @@
     "racket": "헤드",
     "group": "A조",
     "ntrp": 2.5,
-    "mbti": "모름"
+    "mbti": "ENFJ"
   },
   {
     "name": "배성균",
@@ -106,7 +106,7 @@
     "hand": "오른손",
     "racket": "윌슨",
     "group": "A조",
-    "ntrp": 3.0,
+    "ntrp": 3.5,
     "mbti": "ENFP"
   },
   {
@@ -127,7 +127,7 @@
     "racket": "헤드",
     "group": "B조",
     "ntrp": 2.0,
-    "mbti": "모름"
+    "mbti": "ENFP"
   },
   {
     "name": "신동엽",
@@ -145,7 +145,7 @@
     "gender": "남",
     "hand": "오른손",
     "racket": "모름",
-    "group": "A조",
+    "group": "B조",
     "ntrp": null,
     "mbti": "모름"
   },
@@ -174,10 +174,10 @@
     "age_group": "40대",
     "gender": "남",
     "hand": "오른손",
-    "racket": "모름",
+    "racket": "요넥스",
     "group": "A조",
-    "ntrp": null,
-    "mbti": "모름"
+    "ntrp": 3.0,
+    "mbti": "ENFJ"
   },
   {
     "name": "유대한",
@@ -207,7 +207,7 @@
     "racket": "요넥스",
     "group": "A조",
     "ntrp": null,
-    "mbti": "모름"
+    "mbti": "ENFJ"
   },
   {
     "name": "이진혁",
@@ -216,7 +216,7 @@
     "hand": "오른손",
     "racket": "헤드",
     "group": "A조",
-    "ntrp": null,
+    "ntrp": 2.0,
     "mbti": "모름"
   },
   {
@@ -245,7 +245,7 @@
     "gender": "여",
     "hand": "오른손",
     "racket": "요넥스",
-    "group": "B조",
+    "group": "A조",
     "ntrp": null,
     "mbti": "모름"
   },
@@ -347,7 +347,7 @@
     "racket": "바볼랏",
     "group": "A조",
     "ntrp": 3.5,
-    "mbti": "모름"
+    "mbti": "ESFJ"
   },
   {
     "name": "황예슬",
@@ -386,26 +386,6 @@
     "age_group": "30대",
     "racket": "요넥스",
     "group": "B조",
-    "ntrp": null,
-    "mbti": "모름"
-  },
-  {
-    "name": "박상희",
-    "gender": "남",
-    "hand": "오른손",
-    "age_group": "비밀",
-    "racket": "모름",
-    "group": "A조",
-    "ntrp": null,
-    "mbti": "모름"
-  },
-  {
-    "name": "김재호",
-    "gender": "남",
-    "hand": "오른손",
-    "age_group": "비밀",
-    "racket": "모름",
-    "group": "A조",
     "ntrp": null,
     "mbti": "모름"
   }
