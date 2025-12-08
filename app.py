@@ -5477,50 +5477,71 @@ with tab5:
                 # --------------------------------
                 # 3-2. 선수별 BEST 계산
                 # --------------------------------
-                # 🎯 노자비왕
-                best_diff_player = None
-                best_diff_value = None
-                best_diff_for = 0.0
-                best_diff_against = 0.0
+                # 🎯 노자비왕 (공동우승 허용)
+                diff_stats = []
 
                 for name, r in recs.items():
                     if is_guest_name(name, roster):
                         continue
+
                     G = r["G"]
                     if G == 0:
                         continue
+
                     avg_for = r["score_for"] / G
                     avg_against = r["score_against"] / G
                     diff = avg_for - avg_against
-                    if (best_diff_value is None) or (diff > best_diff_value):
-                        best_diff_value = diff
-                        best_diff_player = name
-                        best_diff_for = avg_for
-                        best_diff_against = avg_against
 
-                if best_diff_player is not None:
-                    diff_line = (
-                        f"{best_diff_player} "
-                        f"(평균 득점 {best_diff_for:.2f}, "
-                        f"평균 실점 {best_diff_against:.2f}, "
-                        f"격차 {best_diff_value:.2f})"
-                    )
+                    diff_stats.append({
+                        "name": name,
+                        "avg_for": avg_for,
+                        "avg_against": avg_against,
+                        "diff": diff,
+                    })
+
+                if diff_stats:
+                    best_diff_value = max(x["diff"] for x in diff_stats)
+                    winners = [x for x in diff_stats if x["diff"] == best_diff_value]
+
+                    if len(winners) == 1:
+                        w = winners[0]
+                        diff_line = (
+                            f"{w['name']} "
+                            f"(평균 득점 {w['avg_for']:.2f}, "
+                            f"평균 실점 {w['avg_against']:.2f}, "
+                            f"격차 {w['diff']:.2f})"
+                        )
+                    else:
+                        names = ", ".join(w["name"] for w in winners)
+                        diff_line = (
+                            f"{names} "
+                            f"(공동 노자비왕 · 최대 격차 {best_diff_value:.2f})"
+                        )
                 else:
                     diff_line = "데이터 부족"
 
-                # 🤝 파트너왕
-                most_partner_player = None
-                most_partner_count = 0
+
+                # 🤝 파트너왕 (공동우승 허용)
+                partner_counts = []
+
                 for name, partner_set in partners_by_player.items():
                     if is_guest_name(name, roster):
                         continue
                     cnt = len(partner_set)
-                    if cnt > most_partner_count:
-                        most_partner_count = cnt
-                        most_partner_player = name
+                    partner_counts.append((name, cnt))
 
-                if most_partner_player is not None and most_partner_count > 0:
-                    partner_line = f"{most_partner_player} (만난 파트너 수 {most_partner_count}명)"
+                if partner_counts:
+                    most_partner_count = max(cnt for _, cnt in partner_counts)
+                    winners = [name for name, cnt in partner_counts if cnt == most_partner_count]
+
+                    if most_partner_count > 0:
+                        names = ", ".join(winners)
+                        if len(winners) == 1:
+                            partner_line = f"{names} (만난 파트너 수 {most_partner_count}명)"
+                        else:
+                            partner_line = f"{names} (공동 파트너왕 · 만난 파트너 수 {most_partner_count}명)"
+                    else:
+                        partner_line = "데이터 부족 (복식 경기 없음)"
                 else:
                     partner_line = "데이터 부족 (복식 경기 없음)"
 
@@ -5624,12 +5645,17 @@ with tab5:
                             baker_counter[p] += 1
 
                 if baker_counter:
-                    baker_player, baker_count = max(
-                        baker_counter.items(), key=lambda x: x[1]
-                    )
-                    baker_line = f"{baker_player} (상대를 0점으로 이긴 경기 {baker_count}번)"
+                    max_cnt = max(baker_counter.values())
+                    winners = [p for p, c in baker_counter.items() if c == max_cnt]
+
+                    if max_cnt > 0:
+                        names = ", ".join(winners)
+                        baker_line = f"{names} (상대를 0점으로 이긴 경기 {max_cnt}번)"
+                    else:
+                        baker_line = "데이터 부족"
                 else:
                     baker_line = "데이터 부족"
+
 
                 # --------------------------------
                 # 3-3. 카드 UI 출력
