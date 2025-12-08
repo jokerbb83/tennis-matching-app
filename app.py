@@ -2,32 +2,25 @@
 import json
 import os
 import random
+import math
 from datetime import date
 from collections import defaultdict, Counter
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 import plotly.express as px
 
 
-
 # ---------------------------------------------------------
-# Streamlit 초기화
+# Streamlit 초기화 (✅ 딱 1번만)
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="마리아 상암포바 도우미 MSA (Beta)",
-    layout="centered",             # wide → centered 로 변경 (폰에서 덜 퍼져 보이게)
-    initial_sidebar_state="collapsed",
-)
-
-import streamlit as st
-import streamlit.components.v1 as components
-
-st.set_page_config(
-    page_title="...",
     layout="centered",
     initial_sidebar_state="collapsed",
 )
+
 
 # ✅ 모바일에서만 selectbox 키보드 방지 (JS)
 components.html(
@@ -43,30 +36,25 @@ components.html(
 
         const inputs = document.querySelectorAll('div[data-baseweb="select"] input');
         inputs.forEach((inp) => {
-          // 키보드 유발 요소 제거
           inp.setAttribute('readonly', 'true');
           inp.setAttribute('inputmode', 'none');
-	  inp.setAttribute('tabindex', '-1');
+          inp.setAttribute('tabindex', '-1');
           inp.setAttribute('autocomplete', 'off');
           inp.setAttribute('autocorrect', 'off');
           inp.setAttribute('autocapitalize', 'off');
           inp.setAttribute('spellcheck', 'false');
 
-          // 혹시 클릭으로 포커스가 가면 즉시 해제
           inp.addEventListener('focus', (e) => {
             e.target.blur();
           }, { passive: true });
 
-          // 클릭도 막아보기
           inp.style.pointerEvents = "none";
           inp.style.caretColor = "transparent";
         });
       }
 
-      // 최초 실행
       patchSelectInputs();
 
-      // Streamlit은 렌더가 자주 바뀌니까 관찰자 붙이기
       const observer = new MutationObserver(() => {
         patchSelectInputs();
       });
@@ -77,6 +65,7 @@ components.html(
     """,
     height=0,
 )
+
 
 
 
@@ -685,6 +674,48 @@ def load_sessions():
 
 def save_sessions(sessions):
     save_json(SESSIONS_FILE, sessions)
+
+
+def render_static_on_mobile(df_or_styler):
+    mobile_mode = st.session_state.get("mobile_mode", False)
+
+    if mobile_mode:
+        # ✅ 모바일: 드래그/정렬/스크롤 인터랙션 없는 정적 렌더
+        try:
+            html = df_or_styler.to_html()
+            st.markdown(html, unsafe_allow_html=True)
+        except Exception:
+            st.table(df_or_styler)
+    else:
+        # ✅ PC: 기존대로 인터랙티브
+        st.dataframe(df_or_styler, use_container_width=True)
+
+def is_mobile():
+        return st.session_state.get("mobile_mode", False)
+
+
+def smart_table(df_or_styler, *, use_container_width=True):
+        """
+        ✅ PC: 기존처럼 인터랙티브 dataframe
+        ✅ 모바일: 열 드래그/정렬 등 인터랙션 없는 '고정 표'
+        """
+        if is_mobile():
+                # 1) Styler면 HTML로 정적 렌더
+                try:
+                        html = df_or_styler.to_html()
+                        st.markdown(html, unsafe_allow_html=True)
+                        return
+                except Exception:
+                        pass
+
+                # 2) 일반 DataFrame이면 정적 table
+                try:
+                        st.table(df_or_styler)
+                except Exception:
+                        # 혹시 모르니 마지막 안전망
+                        st.write(df_or_styler)
+        else:
+                st.dataframe(df_or_styler, use_container_width=use_container_width)
 
 
 # ---------------------------------------------------------
@@ -2112,6 +2143,10 @@ if "pending_delete" not in st.session_state:
 if "target_games" not in st.session_state:          # ← 이 줄 추가
     st.session_state.target_games = None
 
+if "min_games_guard" not in st.session_state:
+    st.session_state.min_games_guard = 1
+
+
 roster = st.session_state.roster
 sessions = st.session_state.sessions
 roster_by_name = {p["name"]: p for p in roster}
@@ -2216,7 +2251,8 @@ with tab1:
                 continue
             st.markdown(f"■ {grp}")
             sty = colorize_df_names(sub, roster_by_name, ["이름"])
-            st.dataframe(sty, use_container_width=True)
+            smart_table(sty)
+
     else:
         st.info("등록된 선수가 없습니다.")
 
@@ -3051,28 +3087,37 @@ with tab2:
             st.success(st.session_state["guest_add_msg"])
             st.session_state["guest_add_msg"] = None
 
+
+
+        def safe_rerun():
+                if hasattr(st, "rerun"):
+                        st.rerun()
+                elif hasattr(st, "experimental_rerun"):
+                        st.experimental_rerun()
+
         # 오늘 게스트 목록 표시 + 삭제
         if guest_list:
-            st.markdown("#### 오늘 게스트 목록")
+                st.markdown("#### 오늘 게스트 목록")
 
-            for i, g in enumerate(guest_list, start=1):
-                c1, c2, c3 = st.columns([2.0, 3.0, 1.0])
+                for i, g in enumerate(guest_list, start=1):
+                        c1, c2, c3 = st.columns([2.0, 3.0, 1.0])
 
-                with c1:
-                    st.write(f"{i}. {g['name']}")
+                        with c1:
+                                st.write(f"{i}. {g['name']}")
 
-                with c2:
-                    st.write(
-                        f"성별: {g.get('gender', '남')} / "
-                        f"조: {g.get('group', '미배정')} / "
-                        f"NTRP: {g.get('ntrp', '모름')}"
-                    )
+                        with c2:
+                                st.write(
+                                        f"성별: {g.get('gender', '남')} / "
+                                        f"조: {g.get('group', '미배정')} / "
+                                        f"NTRP: {g.get('ntrp', '모름')}"
+                                )
 
-                with c3:
-                    if st.button("삭제", use_container_width=True, key=f"btn_del_guest_{i}"):
-                        guest_list.pop(i - 1)
-                        st.session_state.guest_list = guest_list
-                        st.experimental_rerun()
+                        with c3:
+                                if st.button("삭제", use_container_width=True, key=f"btn_del_guest_{i}"):
+                                        guest_list.pop(i - 1)
+                                        st.session_state.guest_list = guest_list
+                                        safe_rerun()
+
 
 
     # ---------------------------------------------------------
@@ -3234,12 +3279,13 @@ with tab2:
     # ---------------------------------------------------------
     st.subheader("4. 대진 설정")
 
-    gtype = st.radio("게임 타입", ["복식", "단식"], horizontal=True, key="gtype_radio")
+    # 3-1. 게임 타입
+    gtype = st.radio("게임 타입", ["복식", "단식"], horizontal=True)
 
     mode_label = None
     singles_mode = None
-    is_aa_mode = False
 
+    # 3-2. 모드 선택
     if gtype == "복식":
         doubles_modes = [
             "랜덤 복식",
@@ -3247,17 +3293,24 @@ with tab2:
             "혼합복식 (남+여 짝)",
             "한울 AA 방식 (4게임 고정)",
         ]
-        mode_label = st.selectbox("복식 대진 방식", doubles_modes, index=3, key="doubles_mode_sel")
-        is_aa_mode = (mode_label == "한울 AA 방식 (4게임 고정)")
+        mode_label = st.selectbox(
+            "복식 대진 방식",
+            doubles_modes,
+            index=3,
+        )
+
+        # ✅ 핵심 1) AA 판정: 완전일치 금지, 포함 검사로 안전화
+        is_aa_mode = ("한울 AA" in str(mode_label))
+
     else:
         singles_mode = st.selectbox(
             "단식 대진 방식",
             ["랜덤 단식", "동성 단식", "혼합 단식"],
-            key="singles_mode_sel",
         )
+        is_aa_mode = False
 
+    # 3-3. 개인당 경기 수 / 코트 수
     cg1, cg2 = st.columns(2)
-
     with cg1:
         if gtype == "복식" and is_aa_mode:
             max_games = st.number_input(
@@ -3267,7 +3320,6 @@ with tab2:
                 value=4,
                 step=1,
                 disabled=True,
-                key="max_games_aa",
             )
         else:
             max_games = st.number_input(
@@ -3276,7 +3328,6 @@ with tab2:
                 max_value=10,
                 value=4,
                 step=1,
-                key="max_games_normal",
             )
 
     with cg2:
@@ -3288,45 +3339,39 @@ with tab2:
                 value=2,
                 step=1,
                 disabled=True,
-                key="court_aa",
             )
         else:
             court_count = st.number_input(
-                "사용 코트 수",
-                min_value=1,
-                max_value=6,
-                value=2,
-                step=1,
-                key="court_normal",
+                "사용 코트 수", min_value=1, max_value=6, value=2, step=1
             )
 
+    # 3-4. NTRP / 조별 옵션 (AA 모드이면 비활성화)
     opt1, opt2 = st.columns(2)
-
     with opt1:
         if gtype == "복식" and is_aa_mode:
             use_ntrp = st.checkbox(
                 "NTRP 고려 (비슷한 실력끼리 매칭)",
                 value=False,
                 disabled=True,
-                key="chk_ntrp_aa",
             )
         else:
-            use_ntrp = st.checkbox("NTRP 고려 (비슷한 실력끼리 매칭)", key="chk_ntrp")
+            use_ntrp = st.checkbox("NTRP 고려 (비슷한 실력끼리 매칭)")
 
     with opt2:
         if gtype == "복식" and is_aa_mode:
             group_only_option = st.checkbox(
-                "조별로만 매칭 (A/B조만)",
+                "조별로만 매칭 (A/B조만, C조 제외)",
                 value=False,
                 disabled=True,
-                key="chk_group_only_aa",
             )
         else:
-            group_only_option = st.checkbox("조별로만 매칭 (A/B조만)", key="chk_group_only")
+            group_only_option = st.checkbox("조별로만 매칭 (A/B조만, C조 제외)")
 
+    # 조별 분리 보기면 자동으로 조별 매칭 적용
     view_mode_for_schedule = st.session_state.get("order_view_mode", "전체")
     group_only = group_only_option or (view_mode_for_schedule == "조별 분리 (A/B조)")
 
+    # 3-5. AA 모드 안내
     if gtype == "복식" and is_aa_mode:
         st.info(
             "한울 AA 방식은 5~16명에서 사용하는 고정 패턴입니다.\n"
@@ -3335,89 +3380,17 @@ with tab2:
             "- 사용 코트 수는 현재 값으로 고정됩니다."
         )
 
-
-    # ---------------------------------------------------------
-    # 3-4. ✅ 한울 AA 시드 UI (여기가 정답 위치)
-    # ---------------------------------------------------------
-    if "aa_seed_enabled" not in st.session_state:
-        st.session_state.aa_seed_enabled = False
-    if "aa_seed_players" not in st.session_state:
-        st.session_state.aa_seed_players = []
-
-    # =========================================================
-    # [PATCH] 한울 AA 시드 UI (부분 선택 허용)
-    # - 최대 seed_count명까지
-    # - 0명~seed_count명 모두 허용
-    # =========================================================
-    if gtype == "복식" and is_aa_mode:
-
-        # ✅ 시드 선택 풀은 "오늘 참석 인원" 기준
-        seed_pool = current_order if current_order else []
-        n = len(seed_pool)
-
-        seed_slots = AA_SEED_SLOTS.get(n, [])
-        seed_count = len(seed_slots)
-
-        if seed_count > 0 and n > 0:
-            st.markdown("### 🧷 한울 AA 시드 옵션")
-
-            # enabled
-            st.session_state.aa_seed_enabled = st.checkbox(
-                "시드 배정 사용",
-                value=st.session_state.get("aa_seed_enabled", False),
-                key="aa_seed_enabled_chk",
-            )
-
-            if st.session_state.aa_seed_enabled:
-                help_txt = f"{n}명일 때 시드 슬롯: " + ", ".join(seed_slots)
-
-                # ✅ 기존 선택 유지(참석자 안에 있는 사람만)
-                default_seed = [
-                    p for p in st.session_state.get("aa_seed_players", [])
-                    if p in seed_pool
-                ]
-
-                selected = st.multiselect(
-                    f"시드로 고를 선수 (최대 {seed_count}명)",
-                    options=seed_pool,
-                    default=default_seed,
-                    help=help_txt,
-                    key="aa_seed_players_ms",
-                )
-
-                # ✅ '최대'만 제한 (이하 허용)
-                if len(selected) > seed_count:
-                    st.warning(f"시드는 최대 {seed_count}명까지만 선택할 수 있어.")
-                    selected = selected[:seed_count]
-
-                st.session_state.aa_seed_players = selected
-
-                # ✅ 안내만 가볍게
-                if len(selected) == 0:
-                    st.caption("시드를 선택하지 않으면 일반 순서와 동일하게 배정돼.")
-                else:
-                    st.caption(
-                        f"선택된 {len(selected)}명만 시드 슬롯에 우선 배정되고, "
-                        "나머지 빈 시드 슬롯은 자동으로 채워져."
-                    )
-
-        else:
-            # 규칙 없는 인원수면 상태 정리
-            if st.session_state.get("aa_seed_enabled", False):
-                st.session_state.aa_seed_enabled = False
-            st.session_state.aa_seed_players = []
-
-
-
-
-
     # ---------------------------------------------------------
     # 4. 대진표 생성 / 미리보기
     # ---------------------------------------------------------
     st.subheader("5. 대진표 생성 / 미리보기")
 
     st.markdown('<div class="main-primary-btn">', unsafe_allow_html=True)
-    generate_clicked = st.button("대진표 생성하기", use_container_width=True, key="gen_btn")
+    generate_clicked = st.button(
+        "대진표 생성하기",
+        use_container_width=True,
+        key="gen_btn"
+    )
     st.markdown("</div>", unsafe_allow_html=True)
 
     if generate_clicked:
@@ -3427,172 +3400,95 @@ with tab2:
         else:
             players_selected = current_order.copy()
             schedule = []
-            st.session_state.target_games = None
-
-            # ✅ 최소 -1 보장 값
-            min_games_guard = max(1, max_games - 1)
-
-            # 🔹 게스트 메타 포함한 매칭용 meta 딕셔너리
-            guest_list = st.session_state.get("guest_list", [])
-            meta_for_match = dict(roster_by_name)
-
-            for g in guest_list:
-                name = g.get("name")
-                if not name:
-                    continue
-                meta_for_match[name] = {
-                    "name": name,
-                    "group": g.get("group", "미배정"),
-                    "gender": g.get("gender", "남"),
-                    "racket": "모름",
-                    "ntrp": g.get("ntrp", "모름"),
-                    "is_guest": True,
-                }
+            st.session_state.target_games = None  # 초기화
 
 
-            # ---------------------------
-            # 4-1. ✅ 한울 AA 모드 (조별 분리 지원)
-            # ---------------------------
+            # ✅ 조별 분리 선택값을 AA/일반 모드 공통 스위치로 동기화
+            group_only = (
+                st.session_state.get("order_view_mode", "전체")
+                == "조별 분리 (A/B조)"
+            )
+
+
+            # -------------------------------------------------
+            # 4-1. ✅ 한울 AA 모드
+            # -------------------------------------------------
             if gtype == "복식" and is_aa_mode:
 
-                n = len(players_selected)
+                # 현재 보기 모드
+                view_mode_for_schedule = st.session_state.get(
+                    "order_view_mode", "전체"
+                )
 
-                # ✅ 순서 표시 모드 확인
-                order_view_mode = st.session_state.get("order_view_mode", "전체")
-                order_mode = st.session_state.get("order_mode", "자동")
-
-                # -------------------------------------------------
-                # ✅ 4-1-A) 조별 분리(A/B조)일 때:
-                #    A조 한울AA + B조 한울AA 를 "각각" 생성
-                # -------------------------------------------------
-                if order_view_mode == "조별 분리 (A/B조)":
-
-                    group_map = {
-                        p: roster_by_name.get(p, {}).get("group", "미배정")
-                        for p in players_selected
-                    }
-
-                    a_list = [p for p in current_order if group_map.get(p) == "A조"]
-                    b_list = [p for p in current_order if group_map.get(p) == "B조"]
-
-                    valid_sizes = set(range(5, 17))  # 5~16
-
-                    schedule_A = []
-                    schedule_B = []
-
-                    # ✅ 조별 분리 상태에서 시드 자동 분리 준비
-                    seed_enabled = st.session_state.get("aa_seed_enabled", False)
-                    seed_all = st.session_state.get("aa_seed_players", []) or []
-
-                    seed_A = [
-                        p for p in seed_all
-                        if roster_by_name.get(p, {}).get("group") == "A조"
+                # ✅ 핵심 2) 조별 분리일 때 A/B 인원 점검
+                if view_mode_for_schedule == "조별 분리 (A/B조)":
+                    a_list = [
+                        p for p in players_selected
+                        if roster_by_name.get(p, {}).get("group", "미배정") == "A조"
                     ]
-                    seed_B = [
-                        p for p in seed_all
-                        if roster_by_name.get(p, {}).get("group") == "B조"
+                    b_list = [
+                        p for p in players_selected
+                        if roster_by_name.get(p, {}).get("group", "미배정") == "B조"
                     ]
 
-                    # ---- A조 생성 ----
-                    if len(a_list) in valid_sizes:
-                        base_A = a_list.copy()
-                        if order_mode == "자동":
-                            random.shuffle(base_A)
+                    # A/B 둘 다 5 미만이면 → 전체 AA로 자동 전환
+                    if len(a_list) < 5 and len(b_list) < 5:
+                        view_mode_for_schedule = "전체"
 
-                        # ✅ A조 시드만 A조 슬롯에 적용
-                        final_A = apply_aa_seeds(
-                            players_selected=a_list,
-                            base_order=base_A,
-                            seed_enabled=seed_enabled,
-                            seed_players=seed_A,
-                        )
+                # -------------------------
+                # (1) 조별 AA
+                # -------------------------
+                if view_mode_for_schedule == "조별 분리 (A/B조)":
+                    group_players = {"A조": [], "B조": []}
+                    for p in players_selected:
+                        grp = roster_by_name.get(p, {}).get("group", "미배정")
+                        if grp in ("A조", "B조"):
+                            group_players[grp].append(p)
 
-                        schedule_A = build_hanul_aa_schedule(final_A, court_count)
-                    elif len(a_list) > 0:
-                        st.warning(f"A조 한울 AA는 5~16명만 가능해. (현재 A조 {len(a_list)}명)")
+                    combined = []
+                    for grp_label in ["A조", "B조"]:
+                        grp_list = group_players[grp_label]
+                        if not grp_list:
+                            continue
 
-                    # ---- B조 생성 ----
-                    if len(b_list) in valid_sizes:
-                        base_B = b_list.copy()
-                        if order_mode == "자동":
-                            random.shuffle(base_B)
+                        n_grp = len(grp_list)
+                        if n_grp < 5 or n_grp > 16:
+                            st.warning(
+                                f"한울 AA: {grp_label} 인원이 {n_grp}명이라 "
+                                "5~16명이 아니어서 이 조에는 AA 패턴을 적용하지 않습니다."
+                            )
+                            continue
 
-                        # ✅ B조 시드만 B조 슬롯에 적용
-                        final_B = apply_aa_seeds(
-                            players_selected=b_list,
-                            base_order=base_B,
-                            seed_enabled=seed_enabled,
-                            seed_players=seed_B,
-                        )
+                        sub_schedule = build_hanul_aa_schedule(grp_list, court_count)
+                        combined.extend(sub_schedule)
 
-                        schedule_B = build_hanul_aa_schedule(final_B, court_count)
-                    elif len(b_list) > 0:
-                        st.warning(f"B조 한울 AA는 5~16명만 가능해. (현재 B조 {len(b_list)}명)")
+                    schedule = combined
 
-                    if not schedule_A and not schedule_B:
-                        st.error("A조/B조 모두 한울 AA 조건을 만족하지 못했어.")
-                    else:
-                        merged = []
-                        merged.extend(schedule_A)
-                        merged.extend(schedule_B)
-
-                        normalized = []
-                        for i, (gt, t1, t2, _) in enumerate(merged):
-                            court = (i % max(1, court_count)) + 1
-                            normalized.append((gt, t1, t2, court))
-
-                        schedule = normalized
-
-                        st.session_state.today_schedule = schedule
-                        st.session_state.target_games = 4
-                        st.session_state.min_games_guard = 4
-
-                        st.success("한울 AA (A조/B조 분리) 대진표 생성 완료!")
-
-                # -------------------------------------------------
-                # ✅ 4-1-B) 전체 모드일 때:
-                #    기존 방식 그대로 (시드 반영)
-                # -------------------------------------------------
+                # -------------------------
+                # (2) 전체 AA
+                # -------------------------
                 else:
+                    n = len(players_selected)
                     if n < 5 or n > 16:
                         st.error(
                             f"한울 AA 방식은 5명 이상 16명 이하에서만 사용할 수 있습니다. "
                             f"(현재 인원: {n}명)"
                         )
                     else:
-                        # ✅ 자동이면 생성 때마다 base를 새로 섞음
-                        if order_mode == "자동":
-                            base_order = players_selected.copy()
-                            random.shuffle(base_order)
-                        else:
-                            base_order = players_selected.copy()
+                        schedule = build_hanul_aa_schedule(players_selected, court_count)
 
-                        # ✅ 시드 적용
-                        final_order = apply_aa_seeds(
-                            players_selected=players_selected,
-                            base_order=base_order,
-                            seed_enabled=st.session_state.get("aa_seed_enabled", False),
-                            seed_players=st.session_state.get("aa_seed_players", []),
-                        )
+                st.session_state.today_schedule = schedule
+                st.session_state.target_games = 4
 
-                        # ✅ 한울 AA 스케줄 생성은 final_order 기준
-                        schedule = build_hanul_aa_schedule(final_order, court_count)
+                if not schedule:
+                    st.warning("조건에 맞는 한울 AA 대진을 만들지 못했습니다.")
+                else:
+                    st.success("한울 AA 방식 대진표 생성 완료! (개인당 4게임 고정)")
 
-                        st.session_state.today_schedule = schedule
-                        st.session_state.target_games = 4
-                        st.session_state.min_games_guard = 4
-
-                        if not schedule:
-                            st.warning("조건에 맞는 한울 AA 대진을 만들지 못했습니다.")
-                        else:
-                            st.success("한울 AA 방식 대진표 생성 완료! (개인당 4게임 고정)")
-
-
-            # ---------------------------
-            # 4-2. 일반 랜덤/동성/혼복 모드
-            # ---------------------------
+            # -------------------------------------------------
+            # 4-2. 일반 모드
+            # -------------------------------------------------
             else:
-
                 if gtype == "복식":
                     unit = 4
                     mode_map = {
@@ -3610,7 +3506,7 @@ with tab2:
 
                 can_generate = True
 
-                # ✅ 공평 경기수 가능 여부 체크 ( -1 보장 모드에 맞게 완화 )
+                # 공평 경기수 가능 여부 체크
                 if group_only:
                     group_players = {"A조": [], "B조": []}
                     for p in players_selected:
@@ -3622,19 +3518,16 @@ with tab2:
                         grp_list = group_players[grp_label]
                         if not grp_list:
                             continue
-
                         if len(grp_list) < (4 if gtype == "복식" else 2):
                             st.warning(f"{grp_label} 인원이 부족하여 대진을 만들 수 없습니다.")
                             continue
-
                         needed = len(grp_list) * max_games
                         if needed % unit != 0:
-                            st.warning(
-                                f"{grp_label} 조: 인원수×개인당 경기 수가 {unit}의 배수가 아니라 "
-                                f"모든 선수가 정확히 {max_games}경기씩 하기는 어렵습니다.\n"
-                                f"➡ 대신 최소 {min_games_guard}경기 보장 기준으로 "
-                                "가장 균형 좋은 대진을 탐색합니다."
+                            st.error(
+                                f"{grp_label} 조: 인원수×개인당 경기 수가 {unit}의 배수가 아니어서 "
+                                f"모든 선수가 정확히 {max_games}경기씩 할 수 없습니다."
                             )
+                            can_generate = False
 
                     if not any(
                         len(group_players[g]) >= (4 if gtype == "복식" else 2)
@@ -3646,28 +3539,21 @@ with tab2:
                 else:
                     needed = len(players_selected) * max_games
                     if needed % unit != 0:
-                        st.warning(
-                            f"인원수×개인당 경기 수({needed})가 {unit}의 배수가 아니라 "
-                            f"모든 선수가 정확히 {max_games}경기씩 하기는 어렵습니다.\n"
-                            f"➡ 대신 최소 {min_games_guard}경기 보장 기준으로 "
-                            "가장 균형 좋은 대진을 탐색합니다."
+                        st.error(
+                            f"인원수×개인당 경기 수({needed})가 {unit}의 배수가 아니라서 "
+                            f"모든 선수가 정확히 {max_games}경기씩 할 수 없습니다."
                         )
+                        can_generate = False
 
-
+                # 스케줄 생성
                 if can_generate:
-                    ok_min_guard = True
-
-                    # -----------------------
-                    # A/B조 분리 스코어링
-                    # -----------------------
                     if group_only:
+                        combined = []
                         group_players = {"A조": [], "B조": []}
                         for p in players_selected:
                             grp = roster_by_name.get(p, {}).get("group", "미배정")
                             if grp in ("A조", "B조"):
                                 group_players[grp].append(p)
-
-                        build_fn_by_group = {}
 
                         for grp_label in ["A조", "B조"]:
                             grp_list = group_players[grp_label]
@@ -3677,101 +3563,48 @@ with tab2:
                             if gtype == "복식":
                                 if len(grp_list) < 4:
                                     continue
-
-                                build_fn_by_group[grp_label] = lambda gl=grp_list: build_doubles_schedule(
-                                    random.sample(gl, len(gl)),
+                                sub_schedule = build_doubles_schedule(
+                                    grp_list,
                                     max_games,
                                     court_count,
-                                    mode_map[mode_label],
+                                    mode_map.get(mode_label, "랜덤"),
                                     use_ntrp,
                                     False,
-                                    meta_for_match,
+                                    roster_by_name,
                                 )
-                            else:
-                                if len(grp_list) < 2:
-                                    continue
+                                combined.extend(sub_schedule)
 
-                                build_fn_by_group[grp_label] = lambda gl=grp_list: build_singles_schedule(
-                                    random.sample(gl, len(gl)),
-                                    max_games,
-                                    court_count,
-                                    mode_map_s[singles_mode],
-                                    use_ntrp,
-                                    False,
-                                    meta_for_match,
-                                )
+                        schedule = combined
 
-                        schedule, ok_min_guard = try_build_best_schedule_grouped(
-                            group_players,
-                            build_fn_by_group,
-                            target_games=max_games,
-                            min_guard=min_games_guard,
-                            tries=90,
-                            meta=meta_for_match,
-                            mode_label=mode_label if gtype == "복식" else None,
-                        )
-
-                    # -----------------------
-                    # 전체 스코어링
-                    # -----------------------
                     else:
                         if gtype == "복식":
-                            build_fn = lambda ps=players_selected: build_doubles_schedule(
-                                random.sample(ps, len(ps)),
+                            schedule = build_doubles_schedule(
+                                players_selected,
                                 max_games,
                                 court_count,
-                                mode_map[mode_label],
+                                mode_map.get(mode_label, "랜덤"),
                                 use_ntrp,
                                 False,
-                                meta_for_match,
+                                roster_by_name,
                             )
                         else:
-                            build_fn = lambda ps=players_selected: build_singles_schedule(
-                                random.sample(ps, len(ps)),
+                            schedule = build_singles_schedule(
+                                players_selected,
                                 max_games,
                                 court_count,
-                                mode_map_s[singles_mode],
+                                mode_map_s.get(singles_mode, "랜덤"),
                                 use_ntrp,
                                 False,
-                                meta_for_match,
+                                roster_by_name,
                             )
-
-                        schedule, ok_min_guard = try_build_best_schedule(
-                            players_selected,
-                            build_fn,
-                            target_games=max_games,
-                            min_guard=min_games_guard,
-                            tries=120,
-                            meta=meta_for_match,
-                            mode_label=mode_label if gtype == "복식" else None,
-                        )
-
-                    # ✅ 혼합복식 후처리 + 성비 기회 균등
-                    if gtype == "복식" and mode_label == "혼합복식 (남+여 짝)":
-                        schedule = normalize_mixed_schedule(schedule, meta_for_match)
-                        schedule = rebalance_mixed_gender_opportunity(
-                            schedule,
-                            players_selected,
-                            meta_for_match
-                        )
 
                     st.session_state.today_schedule = schedule
                     st.session_state.target_games = max_games
-                    st.session_state.min_games_guard = min_games_guard
 
                     if not schedule:
                         st.warning("조건에 맞는 대진을 만들지 못했습니다.")
                     else:
-                        if ok_min_guard:
-                            if group_only:
-                                st.success(f"대진표 생성 완료! (A/B조 각각 최소 {min_games_guard}경기 보장)")
-                            else:
-                                st.success(f"대진표 생성 완료! (최소 {min_games_guard}경기 보장)")
-                        else:
-                            st.warning(
-                                f"최소 {min_games_guard}경기 보장 조건을 완벽히 만족하는 "
-                                "대진을 찾지 못해, 가장 균형 좋은 대진을 표시합니다."
-                            )
+                        st.success("대진표 생성 완료!")
 
 
     # ---------------------------------------------------------
@@ -3852,37 +3685,41 @@ with tab2:
         if "show_overwrite_confirm" not in st.session_state:
             st.session_state["show_overwrite_confirm"] = False
 
-        if st.button("💾 이 날짜로 대진 저장 / 덮어쓰기", use_container_width=True, key="btn_save_schedule"):
+        if st.button("💾 이 날짜로 대진 저장 / 덮어쓰기", use_container_width=True):
             sessions = st.session_state.get("sessions", {})
             day_data = sessions.get(target_date, {})
 
-            if "schedule" in day_data:
-                st.session_state["show_overwrite_confirm"] = True
+            # ✅ 1) 잠금 상태면 덮어쓰기/저장 진입 차단 + 안내
+            if day_data.get("scores_locked", False):
+                st.error("🔒 이 날짜는 잠금 상태라 대진을 덮어쓸 수 없어. 잠금을 먼저 해제하세요.")
+            
             else:
-                day_data.setdefault("results", {})
+                if "schedule" in day_data:
+                    st.session_state["show_overwrite_confirm"] = True
+                else:
+                    day_data.setdefault("results", {})
+                    order_mode_for_scores = st.session_state.get("order_view_mode", "전체")
+                    day_data["score_view_mode"] = (
+                        "전체" if order_mode_for_scores == "전체" else "조별 보기 (A/B조)"
+                    )
+                    day_data["score_view_lock"] = (order_mode_for_scores == "전체")
 
-                order_mode_for_scores = st.session_state.get("order_view_mode", "전체")
-                day_data["score_view_mode"] = (
-                    "전체" if order_mode_for_scores == "전체" else "조별 보기 (A/B조)"
-                )
-                day_data["score_view_lock"] = (order_mode_for_scores == "전체")
+                    # 🔒 이 날짜 기준 선수-조 스냅샷 저장
+                    group_snapshot = {}
+                    for gtype_each, t1, t2, court in schedule:
+                        for name in t1 + t2:
+                            if name not in group_snapshot:
+                                group_snapshot[name] = roster_by_name.get(
+                                    name, {}
+                                ).get("group", "미배정")
+                    day_data["groups_snapshot"] = group_snapshot
 
-                day_data["special_match"] = bool(st.session_state.get("special_match", False))
-                day_data["is_special_match"] = bool(st.session_state.get("special_match", False))
-                day_data["guests"] = st.session_state.get("guest_list", [])
+                    day_data["schedule"] = schedule
+                    sessions[target_date] = day_data
+                    st.session_state.sessions = sessions
+                    save_sessions(sessions)
+                    st.success(f"{target_date} 대진표가 저장되었습니다.")
 
-                group_snapshot = {}
-                for gtype_each, t1, t2, court in schedule:
-                    for name in t1 + t2:
-                        if name not in group_snapshot:
-                            group_snapshot[name] = roster_by_name.get(name, {}).get("group", "미배정")
-                day_data["groups_snapshot"] = group_snapshot
-
-                day_data["schedule"] = schedule
-                sessions[target_date] = day_data
-                st.session_state.sessions = sessions
-                save_sessions(sessions)
-                st.success(f"{target_date} 대진표가 저장되었습니다.")
 
         if st.session_state.get("show_overwrite_confirm", False):
             st.markdown(
@@ -3924,32 +3761,39 @@ with tab2:
             if overwrite_yes:
                 sessions = st.session_state.get("sessions", {})
                 day_data = sessions.get(target_date, {})
-                day_data.setdefault("results", {})
 
-                order_mode_for_scores = st.session_state.get("order_view_mode", "전체")
-                day_data["score_view_mode"] = (
-                    "전체" if order_mode_for_scores == "전체" else "조별 보기 (A/B조)"
-                )
-                day_data["score_view_lock"] = (order_mode_for_scores == "전체")
+                # ✅ 2) 최종 덮어쓰기 직전에도 잠금 체크
+                if day_data.get("scores_locked", False):
+                    st.error("🔒 잠금 상태입니다. 덮어쓰기 전에 잠금을 먼저 해제하세요.")
+                    st.session_state["show_overwrite_confirm"] = False
 
-                day_data["special_match"] = bool(st.session_state.get("special_match", False))
-                day_data["is_special_match"] = bool(st.session_state.get("special_match", False))
-                day_data["guests"] = st.session_state.get("guest_list", [])
+                else:
+                    day_data.setdefault("results", {})
 
-                group_snapshot = {}
-                for gtype_each, t1, t2, court in schedule:
-                    for name in t1 + t2:
-                        if name not in group_snapshot:
-                            group_snapshot[name] = roster_by_name.get(name, {}).get("group", "미배정")
-                day_data["groups_snapshot"] = group_snapshot
+                    order_mode_for_scores = st.session_state.get("order_view_mode", "전체")
+                    day_data["score_view_mode"] = (
+                        "전체" if order_mode_for_scores == "전체" else "조별 보기 (A/B조)"
+                    )
+                    day_data["score_view_lock"] = (order_mode_for_scores == "전체")
 
-                day_data["schedule"] = schedule
-                sessions[target_date] = day_data
-                st.session_state.sessions = sessions
-                save_sessions(sessions)
+                    # 🔒 덮어쓰기 시에도, 이 시점의 조를 스냅샷으로 저장
+                    group_snapshot = {}
+                    for gtype_each, t1, t2, court in schedule:
+                        for name in t1 + t2:
+                            if name not in group_snapshot:
+                                group_snapshot[name] = roster_by_name.get(
+                                    name, {}
+                                ).get("group", "미배정")
+                    day_data["groups_snapshot"] = group_snapshot
 
-                st.session_state["show_overwrite_confirm"] = False
-                st.success(f"{target_date} 대진표가 덮어쓰기 저장되었습니다.")
+                    day_data["schedule"] = schedule
+                    sessions[target_date] = day_data
+                    st.session_state.sessions = sessions
+                    save_sessions(sessions)
+
+                    st.session_state["show_overwrite_confirm"] = False
+                    st.success(f"{target_date} 대진표가 덮어쓰기 저장되었습니다.")
+
 
             if overwrite_no:
                 st.session_state["show_overwrite_confirm"] = False
@@ -4081,30 +3925,38 @@ with tab3:
         if not mobile_mode:
             st.markdown("""
             <style>
-            /* PC에서 라디오 옵션 가로 고정 + 줄바꿈 방지 */
+            /* ✅ PC 라디오: 너무 빡센 'nowrap' 제거하고 간격 줄이기 */
             .stRadio [role="radiogroup"]{
                 display: flex !important;
                 flex-direction: row !important;
-                flex-wrap: nowrap !important;
-                gap: 0.7rem !important;
+                flex-wrap: wrap !important;          /* ✅ 핵심: 겹침 방지 */
+                gap: 0.25rem 0.6rem !important;      /* ✅ 옵션 간 간격 축소 */
                 align-items: center !important;
             }
-            .stRadio label, .stRadio label span{
-                white-space: nowrap !important;
+
+            /* ✅ 라디오 동그라미와 텍스트 사이 간격 줄이기 */
+            .stRadio label{
+                gap: 0.25rem !important;
+                padding-right: 0.1rem !important;
             }
-        
+
+            .stRadio label span{
+                white-space: nowrap !important;
+                font-size: 0.92rem !important;      /* ✅ 살짝만 줄여서 안정화 */
+            }
+
             /* 너가 이미 쓰는 이름 배지 class */
             .name-badge{
                 white-space: nowrap !important;
                 display: inline-block !important;
             }
-        
-            /* score-row 안에서도 텍스트 줄바꿈 방지(안전장치) */
+
             .score-row *{
                 white-space: nowrap !important;
             }
             </style>
             """, unsafe_allow_html=True)
+
 
 
 
@@ -4171,6 +4023,8 @@ with tab3:
 
             def render_score_inputs_block(title, game_list):
                 """title: 'A조 경기 스코어', 'B조 경기 스코어' 등
+                   if not game_list:
+                       return
                    game_list: [(idx, gtype, t1, t2, court), ...]"""
                 if not game_list:
                     return
@@ -4179,7 +4033,7 @@ with tab3:
                 locked = day_data.get("scores_locked", False)
 
                 # 헤더 색상
-                if "A조" in title:
+                if ("A조" in title) or ("전체 경기 스코어" in title):
                     color = "#ec4899"   # 핑크
                     bg = "#fdf2f8"
                 elif "B조" in title:
@@ -4189,15 +4043,37 @@ with tab3:
                     color = "#6b7280"   # 회색
                     bg = "#f3f4f6"
 
-
                 # 🔒 이 날짜의 잠금 상태
                 lock_key = f"{sel_date}_scores_locked"
                 locked = day_data.get("scores_locked", False)
 
-                # A조 헤더에만 잠금 체크박스 붙이기 (중복 방지)
-                if "A조" in title:
-                    col_h, col_ck = st.columns([6, 2], vertical_alignment="center")
-                
+                # -------------------------------------------------
+                # ✅ 잠금 UI를 "이 날짜에서 딱 한 번만" 보여주기 위한 플래그
+                #    - A조/전체가 없어도 첫 번째 블록에 잠금이 뜨게 됨
+                # -------------------------------------------------
+                lock_ui_flag = f"{sel_date}_lock_ui_rendered"
+                if lock_ui_flag not in st.session_state:
+                    st.session_state[lock_ui_flag] = False
+
+                # ✅ 잠금 UI를 보여줄 조건
+                # 1) A조 헤더일 때
+                # 2) 전체 경기 스코어 헤더일 때
+                # 3) 위 둘 다 아니어도, 아직 잠금 UI를 한 번도 안 보여줬다면
+                should_show_lock = (
+                    ("A조" in title)
+                    or ("전체 경기 스코어" in title)
+                    or (not st.session_state[lock_ui_flag])
+                )
+
+                # -------------------------------------------------
+                # ✅ 헤더 렌더 + 잠금 UI
+                # -------------------------------------------------
+                if should_show_lock:
+                    # 이 날짜에서 잠금 UI가 이미 한 번 렌더됐다고 기록
+                    st.session_state[lock_ui_flag] = True
+
+                    col_h, col_ck, col_txt = st.columns([8, 1.2, 1.8], vertical_alignment="center")
+
                     with col_h:
                         st.markdown(
                             f"""
@@ -4218,23 +4094,29 @@ with tab3:
 
                     with col_ck:
                         scores_locked = st.checkbox(
-                            "🔒 점수 잠금",
+                            "",
                             key=lock_key,
                             value=locked,
+                            label_visibility="collapsed",
                             help="체크하면 이 날짜의 점수를 수정할 수 없습니다.",
                         )
 
-                    # 잠금 상태 저장
+                    with col_txt:
+                        st.markdown(
+                            "<div style='margin-top:6px; font-weight:600; font-size:0.9rem;'>🔒 잠금</div>",
+                            unsafe_allow_html=True,
+                        )
+
                     if scores_locked != locked:
                         day_data["scores_locked"] = scores_locked
                         sessions[sel_date] = day_data
                         st.session_state.sessions = sessions
                         save_sessions(sessions)
-                
+
                     locked = scores_locked
 
                 else:
-                    # B조/기타/전체는 헤더만
+                    # ✅ 잠금 UI 없이 헤더만 표시
                     st.markdown(
                         f"""
                         <div style="
@@ -4251,8 +4133,6 @@ with tab3:
                         """,
                         unsafe_allow_html=True,
                     )
-
-
                 # 배지 모양 이름 줄 (성별에 따라 배경색 다르게)
                 def render_name_pills(players):
                     html_parts = []
@@ -4389,6 +4269,7 @@ with tab3:
                                 key=f"{sel_date}_side_radio_{idx}_t1",
                                 label_visibility="collapsed",
                                 format_func=gender_badge_label,  # 🔵/🔴 표시
+                                disabled=locked,
                             )
 
                         # 팀1 점수 (왼쪽 숫자)
@@ -4439,6 +4320,7 @@ with tab3:
                                 key=f"{sel_date}_side_radio_{idx}_t2",
                                 label_visibility="collapsed",
                                 format_func=gender_badge_label,  # 🔵/🔴 표시
+                                disabled=locked,
                             )
 
                         def sides_from_choice(choice, p1, p2):
@@ -4524,47 +4406,17 @@ with tab3:
             # 레이아웃 처리
             has_AB_games = bool(games_A or games_B)
 
-            if (
-                view_mode_scores == "조별 보기 (A/B조)"
-                and has_AB_games
-                and not mobile_mode
-            ):
-                # 조별 2컬럼 균등 정렬
-                colA, colMid, colB = st.columns([1, 0.02, 1])
-
-                with colA:
-                    render_score_inputs_block("A조 경기 스코어", games_A)
-
-                with colMid:
-                    st.markdown(
-                        """
-                        <div style="
-                            height: 100%;
-                            border-left: 1px solid #e5e7eb;
-                            margin: 0 auto;
-                        "></div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-                with colB:
-                    render_score_inputs_block("B조 경기 스코어", games_B)
-
-                st.markdown("<div style='margin-top:0.5rem;'></div>", unsafe_allow_html=True)
-                st.divider()
-
+            # ✅ 레이아웃: A/B조를 절대 양옆 2컬럼으로 나누지 않음
+            if view_mode_scores == "조별 보기 (A/B조)" and has_AB_games:
+                render_score_inputs_block("A조 경기 스코어", games_A)
+                render_score_inputs_block("B조 경기 스코어", games_B)
                 if games_other:
                     render_score_inputs_block("기타 경기 스코어", games_other)
 
             else:
-                if view_mode_scores == "조별 보기 (A/B조)" and has_AB_games and mobile_mode:
-                    render_score_inputs_block("A조 경기 스코어", games_A)
-                    render_score_inputs_block("B조 경기 스코어", games_B)
-                    if games_other:
-                        render_score_inputs_block("기타 경기 스코어", games_other)
-                else:
-                    all_games = games_A + games_B + games_other
-                    render_score_inputs_block("전체 경기 스코어", all_games)
+                all_games = games_A + games_B + games_other
+                all_games = sorted(all_games, key=lambda x: x[0])  # ✅ idx 기준 정렬
+                render_score_inputs_block("전체 경기 스코어", all_games)
 
             # 🔄 스코어 자동 저장
             day_data["results"] = results
@@ -4656,11 +4508,16 @@ with tab3:
             confirm_container = st.container()
 
             st.markdown('<div class="main-danger-btn">', unsafe_allow_html=True)
+            # ✅ 이 날짜 잠금 여부
+            locked = sessions.get(sel_date, {}).get("scores_locked", False)
+
             delete_start = st.button(
                 "🗑 이 날짜의 경기 기록 전체 삭제",
                 use_container_width=True,
                 key="delete_start",
+                disabled=locked,  # ✅ 잠금이면 삭제 시작 자체 불가
             )
+
             st.markdown("</div>", unsafe_allow_html=True)
 
             if delete_start:
@@ -4670,62 +4527,74 @@ with tab3:
 
             with confirm_container:
                 if pending == sel_date:
-                    st.markdown(
-                        f"""
-                        <div style="
-                            color:#1f2933;
-                            background:#fff9c4;
-                            padding:16px 20px;
-                            border-radius:12px;
-                            font-size:1rem;
-                            font-weight:500;
-                            margin-bottom:5px;
-                        ">
-                            {sel_date} 날짜의 모든 경기 기록을 정말 삭제하시겠습니까?
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
 
-                    col_ok, col_cancel = st.columns(2)
+                    # ✅ 잠금이면 삭제 확인 UI 대신 안내만
+                    if locked:
+                        st.warning("잠금을 먼저 해제하세요.")
+                        st.session_state.pending_delete = None
 
-                    with col_ok:
+                    else:
                         st.markdown(
-                            '<div class="main-danger-btn" style="margin-bottom:4px;">',
+                            f"""
+                            <div style="
+                                color:#1f2933;
+                                background:#fff9c4;
+                                padding:16px 20px;
+                                border-radius:12px;
+                                font-size:1rem;
+                                font-weight:500;
+                                margin-bottom:5px;
+                            ">
+                                {sel_date} 날짜의 모든 경기 기록을 정말 삭제하시겠습니까?
+                            </div>
+                            """,
                             unsafe_allow_html=True,
                         )
-                        yes_clicked = st.button(
-                            "네, 삭제합니다",
-                            use_container_width=True,
-                            key="delete_yes",
-                        )
 
-                    with col_cancel:
-                        st.markdown(
-                            '<div class="main-danger-btn" style="margin-bottom:4px;">',
-                            unsafe_allow_html=True,
-                        )
-                        cancel_clicked = st.button(
-                            "취소",
-                            use_container_width=True,
-                            key="delete_cancel",
-                        )
+                        col_ok, col_cancel = st.columns(2)
 
-                    st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+                        with col_ok:
+                            st.markdown(
+                                '<div class="main-danger-btn" style="margin-bottom:4px;">',
+                                unsafe_allow_html=True,
+                            )
+                            yes_clicked = st.button(
+                                "네, 삭제합니다",
+                                use_container_width=True,
+                                key="delete_yes",
+                            )
 
-                    if yes_clicked:
-                        sessions.pop(sel_date, None)
-                        st.session_state.sessions = sessions
-                        save_sessions(sessions)
-                        st.session_state.pending_delete = None
-                        st.success(
-                            "해당 날짜의 기록이 모두 삭제되었습니다. "
-                            "위의 날짜 선택 박스를 다시 확인해 주세요."
-                        )
+                        with col_cancel:
+                            st.markdown(
+                                '<div class="main-danger-btn" style="margin-bottom:4px;">',
+                                unsafe_allow_html=True,
+                            )
+                            cancel_clicked = st.button(
+                                "취소",
+                                use_container_width=True,
+                                key="delete_cancel",
+                            )
 
-                    if cancel_clicked:
-                        st.session_state.pending_delete = None
-                        st.info("삭제를 취소했습니다.")
+                        st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+
+                        if yes_clicked:
+                            # ✅ 안전망: 혹시 잠금이 그 사이 켜졌을 경우까지 방지
+                            if sessions.get(sel_date, {}).get("scores_locked", False):
+                                st.warning("잠금을 먼저 해제하세요.")
+                            else:
+                                sessions.pop(sel_date, None)
+                                st.session_state.sessions = sessions
+                                save_sessions(sessions)
+                                st.session_state.pending_delete = None
+                                st.success(
+                                    "해당 날짜의 기록이 모두 삭제되었습니다. "
+                                    "위의 날짜 선택 박스를 다시 확인해 주세요."
+                                )
+
+                        if cancel_clicked:
+                            st.session_state.pending_delete = None
+                            st.info("삭제를 취소했습니다.")
+
 
                 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -4867,7 +4736,9 @@ with tab3:
 
                             sty_players = colorize_df_names(df_players, roster_by_name, ["이름"])
                             sty_players = sty_players.applymap(highlight_win_loss, subset=game_cols)
-                            st.dataframe(sty_players, use_container_width=True)
+                            smart_table(sty_players)
+
+
 
                         if view_mode_scores == "조별 보기 (A/B조)":
                             has_any = False
