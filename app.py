@@ -2081,6 +2081,184 @@ if "current_order" not in st.session_state:
     st.session_state.current_order = []
 if "shuffle_count" not in st.session_state:
     st.session_state.shuffle_count = 0
+
+
+
+import pandas as pd
+import streamlit as st
+
+
+def _safe_df_for_styler(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    ✅ Styler KeyError 방지용 안전 처리
+    - 인덱스 중복 제거
+    - 컬럼 중복 제거
+    """
+    df2 = df.copy()
+    df2 = df2.reset_index(drop=True)
+
+    # 혹시라도 같은 컬럼명이 생겼을 때 강제 유니크화
+    cols = list(df2.columns)
+    seen = {}
+    new_cols = []
+    for c in cols:
+        if c not in seen:
+            seen[c] = 0
+            new_cols.append(c)
+        else:
+            seen[c] += 1
+            new_cols.append(f"{c}_{seen[c]}")
+    df2.columns = new_cols
+
+    return df2
+
+
+def colorize_df_names_hybrid(
+    df: pd.DataFrame,
+    roster_by_name: dict,
+    name_cols=None,
+    male_bg="#dbeafe",
+    female_bg="#fee2e2",
+):
+    """
+    ✅ 하이브리드 컬러 처리
+
+    - PC: pandas Styler로 '이름' 셀 배경색 적용
+    - 모바일: HTML span으로 이름 컬럼 자체를 색 입힌 문자열로 변환
+
+    Return:
+        - mobile_mode=True  -> DataFrame (이름 컬럼에 HTML span 포함)
+        - mobile_mode=False -> pandas Styler
+    """
+    name_cols = name_cols or ["이름"]
+    mobile_mode = st.session_state.get("mobile_mode", False)
+
+    base = df.copy()
+
+    # ---------------------------
+    # 모바일: 이름 셀을 HTML span으로 변환
+    # ---------------------------
+    if mobile_mode:
+        for col in name_cols:
+            if col not in base.columns:
+                continue
+
+            def _name_html(n):
+                meta = roster_by_name.get(str(n), {})
+                g = meta.get("gender")
+
+                bg = male_bg if g == "남" else female_bg if g == "여" else "#f3f4f6"
+                return (
+                    "<span style='"
+                    "display:inline-block;"
+                    "padding:0.08rem 0.35rem;"
+                    "border-radius:0.45rem;"
+                    f"background:{bg};"
+                    "font-weight:700;"
+                    "'>"
+                    f"{n}"
+                    "</span>"
+                )
+
+            base[col] = base[col].apply(_name_html)
+
+        return base
+
+    # ---------------------------
+    # PC: Styler 안전 처리 후 배경색 적용
+    # ---------------------------
+    safe = _safe_df_for_styler(base)
+
+    def _apply_name_bg(row):
+        styles = []
+        for c in safe.columns:
+            if c in name_cols:
+                n = row.get(c, "")
+                meta = roster_by_name.get(str(n), {})
+                g = meta.get("gender")
+                bg = male_bg if g == "남" else female_bg if g == "여" else "#f3f4f6"
+                styles.append(
+                    "font-weight:700;"
+                    f"background-color:{bg};"
+                    "border-radius:8px;"
+                )
+            else:
+                styles.append("")
+        return styles
+
+    sty = safe.style.apply(_apply_name_bg, axis=1)
+    return sty
+
+
+def smart_table_hybrid(df_or_styler):
+    """
+    ✅ 모바일/PC 자동 분기 테이블 출력
+
+    - 모바일: HTML 테이블 (폰트/줄바꿈 제어)
+    - PC: st.dataframe (인터랙티브)
+    """
+    mobile_mode = st.session_state.get("mobile_mode", False)
+
+    # ---------------------------
+    # 모바일: HTML 테이블
+    # ---------------------------
+    if mobile_mode:
+        st.markdown(
+            """
+            <style>
+            .mobile-table-wrap table {
+                width: 100% !important;
+                border-collapse: collapse !important;
+                table-layout: auto !important;
+                font-size: 0.78rem !important;
+            }
+            .mobile-table-wrap th,
+            .mobile-table-wrap td {
+                padding: 0.22rem 0.35rem !important;
+                white-space: nowrap !important;
+                word-break: keep-all !important;
+                vertical-align: middle !important;
+            }
+            .mobile-table-wrap thead th {
+                font-weight: 800 !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+        # Styler가 넘어오면 data를 뽑아 HTML 변환
+        if hasattr(df_or_styler, "data"):
+            df_m = df_or_styler.data.copy()
+        elif isinstance(df_or_styler, pd.DataFrame):
+            df_m = df_or_styler.copy()
+        else:
+            df_m = pd.DataFrame(df_or_styler)
+
+        # ✅ HTML span이 들어갈 수 있으니 escape=False
+        html = df_m.to_html(index=False, escape=False)
+
+        st.markdown(
+            f"""
+            <div class="mobile-table-wrap">
+                {html}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        return
+
+    # ---------------------------
+    # PC: dataframe
+    # ---------------------------
+    if hasattr(df_or_styler, "data"):
+        st.dataframe(df_or_styler, use_container_width=True, hide_index=True)
+    else:
+        st.dataframe(df_or_styler, use_container_width=True, hide_index=True)
+
+
+
+
 # ---------------------------------------------------------
 # [PATCH] 한울 AA 시드 state
 # ---------------------------------------------------------
@@ -2155,6 +2333,7 @@ MOBILE_SCORE_ROW_CSS = """
         font-size: 0.8rem;
     }
 }
+
 </style>
 """
 st.markdown(MOBILE_SCORE_ROW_CSS, unsafe_allow_html=True)
@@ -2167,38 +2346,15 @@ tab3, tab5, tab4, tab1, tab2 = st.tabs(
 with tab1:
     st.header("🧾 선수 정보 관리")
 
-    # -----------------------------------------------------
-    # 3) 등록된 선수 목록 (맨 위에 표)
-    # -----------------------------------------------------
-
     st.markdown("---")
     st.subheader("등록된 선수 목록")
-
-    # ✅ 모바일 표 가독성 개선 CSS (이름 세로 깨짐 방지)
-    if mobile_mode:
-        st.markdown(
-            """
-            <style>
-            div[data-testid="stDataFrame"] table {
-                font-size: 0.78rem !important;
-            }
-            div[data-testid="stDataFrame"] th,
-            div[data-testid="stDataFrame"] td {
-                padding: 0.25rem 0.35rem !important;
-                white-space: nowrap !important;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
 
     if roster:
         df = pd.DataFrame(roster)
         df_disp = df.copy()
 
-        # ✅ NTRP 표시용: None/NaN -> "모름"
+        # ✅ NTRP 표시용 컬럼
         def format_ntrp(v):
-            import pandas as pd
             if v is None or pd.isna(v):
                 return "모름"
             try:
@@ -2206,20 +2362,13 @@ with tab1:
             except Exception:
                 return "모름"
 
-        # ✅ 표시용 컬럼 정리
-        # - ntrp는 표시용 NTRP로 변환
-        df_disp["NTRP"] = df_disp.get("ntrp", None).apply(format_ntrp)
+        df_disp["NTRP"] = df_disp["ntrp"].apply(format_ntrp)
 
-        # - mbti는 원래 키 유지하면서 값만 보정
-        if "mbti" not in df_disp.columns:
-            df_disp["mbti"] = "모름"
-        df_disp["mbti"] = df_disp["mbti"].fillna("모름")
-
-        # ✅ 원본 ntrp 컬럼은 숨김
+        # 원본 ntrp 숨김
         if "ntrp" in df_disp.columns:
             df_disp = df_disp.drop(columns=["ntrp"])
 
-        # ✅ 컬럼명 한글화
+        # 기본 헤더 한글화
         df_disp = df_disp.rename(
             columns={
                 "name": "이름",
@@ -2229,15 +2378,10 @@ with tab1:
                 "racket": "라켓",
                 "group": "실력조",
                 "mbti": "MBTI",
-                "NTRP": "NTRP",
             }
         )
 
-        # ✅ (중요) 중복 컬럼/인덱스 안전장치
-        df_disp = df_disp.reset_index(drop=True)
-        df_disp = df_disp.loc[:, ~df_disp.columns.duplicated()]
-
-        # ✅ 모바일이면 헤더를 더 짧게 + 핵심 컬럼만
+        # ✅ 모바일 헤더 축약 + 표시 컬럼 정리
         if mobile_mode:
             df_disp = df_disp.rename(
                 columns={
@@ -2250,37 +2394,26 @@ with tab1:
             keep_cols = [c for c in keep_cols if c in df_disp.columns]
             df_disp = df_disp[keep_cols]
 
-            # ✅ 다시 한 번 중복 방지
-            df_disp = df_disp.reset_index(drop=True)
-            df_disp = df_disp.loc[:, ~df_disp.columns.duplicated()]
-
-        # ✅ 색상 표시용 메타
         roster_by_name = {p["name"]: p for p in roster}
 
-        # ✅ 그룹별 출력
-        group_col = "조" if mobile_mode and "조" in df_disp.columns else "실력조"
-
         for grp in ["A조", "B조", "미배정"]:
-            if group_col in df_disp.columns:
-                sub = df_disp[df_disp[group_col] == grp].copy()
-            else:
-                sub = df_disp.copy()
+            col_grp = "실력조" if not mobile_mode else "조"
+            if col_grp not in df_disp.columns:
+                continue
 
+            sub = df_disp[df_disp[col_grp] == grp]
             if sub.empty:
                 continue
 
-            # ✅ (중요) Styler 에러 방지용 최종 안전장치
-            sub = sub.reset_index(drop=True)
-            sub = sub.loc[:, ~sub.columns.duplicated()]
-
             st.markdown(f"■ {grp}")
 
-            # ✅ 이름 컬럼만 색칠
-            if "이름" in sub.columns:
-                sty = colorize_df_names(sub, roster_by_name, ["이름"])
-                smart_table(sty)
-            else:
-                smart_table(sub)
+            styled_or_df = colorize_df_names_hybrid(
+                sub,
+                roster_by_name,
+                name_cols=["이름"],
+            )
+
+            smart_table_hybrid(styled_or_df)
 
     else:
         st.info("등록된 선수가 없습니다.")
