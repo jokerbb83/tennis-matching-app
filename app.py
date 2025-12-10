@@ -69,28 +69,6 @@ components.html(
 
 
 
-# ---------- 모바일에서 selectbox 키보드 뜨는 문제 방지 ----------
-st.markdown("""
-<style>
-/* 📱 모바일 화면에서만 적용 */
-@media (max-width: 768px) {
-
-  /* Streamlit selectbox 내부 input 포커스/클릭 차단 */
-  div[data-baseweb="select"] input {
-      pointer-events: none !important;
-      caret-color: transparent !important;
-  }
-
-  /* 혹시 모를 다른 변형 케이스도 함께 커버 */
-  div[data-baseweb="select"] [type="search"] {
-      pointer-events: none !important;
-  }
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-
 # ---------- 라이트 모드 강제 스타일 ----------
 st.markdown("""
 <style>
@@ -1912,26 +1890,6 @@ def mini_subtitle_card(title: str, description: str = "", emoji: str = "📝"):
     )
 
 
-
-
-
-
-DISABLE_SELECTBOX_KEYBOARD = """
-<style>
-/* 📱 모바일에서만 selectbox 키보드 방지 */
-@media (max-width: 768px) {
-    div[data-baseweb="select"] input {
-        pointer-events: none !important;
-    }
-}
-</style>
-"""
-st.markdown(DISABLE_SELECTBOX_KEYBOARD, unsafe_allow_html=True)
-
-
-
-
-
 MOBILE_LANDSCAPE = """
 <style>
 
@@ -2214,6 +2172,26 @@ with tab1:
     # -----------------------------------------------------
     st.markdown("---")
     st.subheader("등록된 선수 목록")
+
+    if mobile_mode:
+        st.markdown(
+            """
+            <style>
+            /* 모바일 DataFrame 가독성 개선 */
+            div[data-testid="stDataFrame"] table {
+                font-size: 0.78rem !important;   /* 글씨 줄이기 */
+            }
+            div[data-testid="stDataFrame"] th,
+            div[data-testid="stDataFrame"] td {
+                padding: 0.25rem 0.35rem !important; /* 셀 여백 줄이기 */
+                white-space: nowrap !important;     /* ✅ 글자 세로 깨짐 방지 */
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+
 
     if roster:
         df = pd.DataFrame(roster)
@@ -3969,8 +3947,9 @@ with tab3:
         # 복식 게임 포함 여부 체크 (단식이면 안내문 숨김)
         show_side_notice = any(
             len(t1) == 2 and len(t2) == 2
-            for (_, (gtype, t1, t2, court)) in enumerate(schedule, start=1)
+            for (gtype, t1, t2, court) in schedule
         )
+
 
         if show_side_notice:
             st.markdown(
@@ -3995,26 +3974,32 @@ with tab3:
         if schedule:
             score_options = SCORE_OPTIONS
 
+
+
             # ------------------------------
             # 게임을 A조 / B조 / 기타로 분류
             # ------------------------------
             games_A, games_B, games_other = [], [], []
             day_groups_snapshot = day_data.get("groups_snapshot")
-
+            
             for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
                 all_players = list(t1) + list(t2)
+            
                 grp_flag = classify_game_group(
                     all_players,
                     roster_by_name,
                     day_groups_snapshot,
                 )
-
+            
+                item = (idx, gtype, t1, t2, court)
+            
                 if grp_flag == "A":
-                    games_A.append((idx, gtype, t1, t2, court))
+                    games_A.append(item)
                 elif grp_flag == "B":
-                    games_B.append((idx, gtype, t1, t2, court))
+                    games_B.append(item)
                 else:
-                    games_other.append((idx, gtype, t1, t2, court))
+                    games_other.append(item)
+
 
             # ------------------------------
             # A/B조별 스코어 입력 블록
