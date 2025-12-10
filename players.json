@@ -11,13 +11,13 @@
   },
   {
     "name": "김금비",
-    "age_group": "비밀",
+    "age_group": "30대",
     "gender": "여",
     "hand": "오른손",
-    "racket": "모름",
+    "racket": "윌슨",
     "group": "B조",
-    "ntrp": null,
-    "mbti": "모름"
+    "ntrp": 2.0,
+    "mbti": "ENFJ"
   },
   {
     "name": "김연주",
@@ -26,8 +26,8 @@
     "hand": "오른손",
     "racket": "윌슨",
     "group": "B조",
-    "ntrp": null,
-    "mbti": "ENTJ"
+    "ntrp": 2.0,
+    "mbti": "ENTP"
   },
   {
     "name": "김정은",
@@ -47,7 +47,7 @@
     "racket": "요넥스",
     "group": "A조",
     "ntrp": 2.0,
-    "mbti": "모름"
+    "mbti": "ESFP"
   },
   {
     "name": "나혜영",
@@ -87,7 +87,7 @@
     "racket": "윌슨",
     "group": "B조",
     "ntrp": 2.0,
-    "mbti": "모름"
+    "mbti": "ENFP"
   },
   {
     "name": "박하린",
@@ -157,7 +157,7 @@
     "racket": "요넥스",
     "group": "B조",
     "ntrp": null,
-    "mbti": "모름"
+    "mbti": "ISFJ"
   },
   {
     "name": "양정우",
@@ -186,7 +186,7 @@
     "hand": "오른손",
     "racket": "윌슨",
     "group": "A조",
-    "ntrp": null,
+    "ntrp": 3.0,
     "mbti": "모름"
   },
   {
@@ -211,13 +211,13 @@
   },
   {
     "name": "이진혁",
-    "age_group": "비밀",
+    "age_group": "30대",
     "gender": "남",
     "hand": "오른손",
     "racket": "헤드",
     "group": "A조",
     "ntrp": 2.0,
-    "mbti": "모름"
+    "mbti": "ISTP"
   },
   {
     "name": "이학수",
@@ -245,9 +245,9 @@
     "gender": "여",
     "hand": "오른손",
     "racket": "요넥스",
-    "group": "A조",
-    "ntrp": null,
-    "mbti": "모름"
+    "group": "B조",
+    "ntrp": 2.5,
+    "mbti": "ESFJ"
   },
   {
     "name": "전태영",
@@ -311,13 +311,13 @@
   },
   {
     "name": "차혜주",
-    "age_group": "40대",
+    "age_group": "비밀",
     "gender": "여",
     "hand": "오른손",
     "racket": "헤드",
     "group": "B조",
-    "ntrp": null,
-    "mbti": "모름"
+    "ntrp": 2.5,
+    "mbti": "ISFP"
   },
   {
     "name": "허시완",
