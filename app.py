@@ -2368,8 +2368,6 @@ tab3, tab5, tab4, tab1, tab2 = st.tabs(
 
 with tab1:
     st.header("🧾 선수 정보 관리")
-
-    st.markdown("---")
     st.subheader("등록된 선수 목록")
 
     if roster:
@@ -5535,6 +5533,7 @@ with tab5:
                 days_sorted = sorted({d for d, idx, g in month_games})
 
                 for d in days_sorted:
+                    st.markdown("<hr style='margin: 0.6rem 0 0.9rem 0;'>", unsafe_allow_html=True)
                     st.markdown(f"**📅 {d}**")
 
                     rows_all = []
@@ -5650,13 +5649,13 @@ with tab5:
                             best_grps.append(grp)
 
                     if not best_grps:
-                        return f"{label}: 데이터 부족"
+                        return "데이터 부족"
 
                     grp_text = ", ".join(best_grps)
-                    return (
-                        f"{label}: {grp_text} "
-                        f"(승률 {best_rate*100:.1f}%, 경기수 {stats[best_grps[0]]['G']})"
-                    )
+                    games = stats[best_grps[0]]["G"]
+
+                    return f"{grp_text} (승률 {best_rate*100:.1f}%, 경기수 {games})"
+
 
                 best_hand = best_by_category("주손", lambda m: m.get("hand", "오른손"))
                 best_racket = best_by_category("라켓", lambda m: m.get("racket", "모름"))
@@ -5665,7 +5664,6 @@ with tab5:
                 best_mbti = best_by_category(
                     "MBTI", lambda m: m.get("mbti", "모름"), exclude_values={"모름"}
                 )
-
                 # --------------------------------
                 # 3-2. 선수별 BEST 계산
                 # --------------------------------
