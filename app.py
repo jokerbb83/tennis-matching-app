@@ -2170,34 +2170,33 @@ with tab1:
     # -----------------------------------------------------
     # 3) 등록된 선수 목록 (맨 위에 표)
     # -----------------------------------------------------
-    st.markdown("---")
+
     st.subheader("등록된 선수 목록")
 
+    # ✅ 모바일 표 가독성 개선 CSS (이름 세로 깨짐 방지)
     if mobile_mode:
         st.markdown(
             """
             <style>
-            /* 모바일 DataFrame 가독성 개선 */
+            /* tab1 표(데이터프레임) 폰트/패딩 컴팩트 + 줄바꿈 금지 */
             div[data-testid="stDataFrame"] table {
-                font-size: 0.78rem !important;   /* 글씨 줄이기 */
+                font-size: 0.78rem !important;
             }
             div[data-testid="stDataFrame"] th,
             div[data-testid="stDataFrame"] td {
-                padding: 0.25rem 0.35rem !important; /* 셀 여백 줄이기 */
-                white-space: nowrap !important;     /* ✅ 글자 세로 깨짐 방지 */
+                padding: 0.25rem 0.35rem !important;
+                white-space: nowrap !important;
             }
             </style>
             """,
             unsafe_allow_html=True
         )
 
-
-
     if roster:
         df = pd.DataFrame(roster)
         df_disp = df.copy()
 
-        # ✅ NTRP 표시용 컬럼: None / NaN 은 전부 "모름"으로
+        # ✅ NTRP 표시용: None/NaN -> "모름"
         def format_ntrp(v):
             import pandas as pd
             if v is None or pd.isna(v):
@@ -2207,9 +2206,15 @@ with tab1:
             except Exception:
                 return "모름"
 
-        df_disp["NTRP"] = df_disp["ntrp"].apply(format_ntrp)
+        # ✅ 표시용 컬럼 확실히 생성
+        df_disp["NTRP"] = df_disp.get("ntrp", None).apply(format_ntrp)
+        df_disp["MBTI"] = df_disp.get("mbti", "모름").fillna("모름")
 
-        df_disp = df_disp.drop(columns=["ntrp"])
+        # ✅ 원본 ntrp 컬럼은 숨김
+        if "ntrp" in df_disp.columns:
+            df_disp = df_disp.drop(columns=["ntrp"])
+
+        # ✅ 컬럼명 한글화
         df_disp = df_disp.rename(
             columns={
                 "name": "이름",
@@ -2218,18 +2223,49 @@ with tab1:
                 "age_group": "나이대",
                 "racket": "라켓",
                 "group": "실력조",
-                # 필요하면 여기서 MBTI도 같이 보여줄 수 있어:
-                # "mbti": "MBTI",
+                "MBTI": "mbti",
+                "NTRP": "NTRP",
             }
         )
+
+        # ✅ 모바일이면 헤더를 더 짧게 + 핵심 컬럼만
+        if mobile_mode:
+            df_disp = df_disp.rename(
+                columns={
+                    "나이대": "나이",
+                    "실력조": "조",
+                }
+            )
+
+            # 폰에서는 폭 줄이려고 핵심만 보여주기
+            keep_cols = ["이름", "나이", "성별", "주손", "라켓", "조", "mbti", "NTRP"]
+            keep_cols = [c for c in keep_cols if c in df_disp.columns]
+            df_disp = df_disp[keep_cols]
+
+        # ✅ 색상 표시용 메타
         roster_by_name = {p["name"]: p for p in roster}
+
+        # ✅ 그룹별 출력
+        group_col = "조" if mobile_mode and "조" in df_disp.columns else "실력조"
+
         for grp in ["A조", "B조", "미배정"]:
-            sub = df_disp[df_disp["실력조"] == grp]
+            if group_col not in df_disp.columns:
+                sub = df_disp.copy()
+            else:
+                sub = df_disp[df_disp[group_col] == grp]
+
             if sub.empty:
                 continue
+
             st.markdown(f"■ {grp}")
-            sty = colorize_df_names(sub, roster_by_name, ["이름"])
-            smart_table(sty)
+
+            # ✅ 이름 컬럼만 색칠
+            name_col = "이름" if "이름" in sub.columns else None
+            if name_col:
+                sty = colorize_df_names(sub, roster_by_name, [name_col])
+                smart_table(sty)
+            else:
+                smart_table(sub)
 
     else:
         st.info("등록된 선수가 없습니다.")
