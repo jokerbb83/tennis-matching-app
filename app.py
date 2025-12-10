@@ -2171,6 +2171,7 @@ with tab1:
     # 3) 등록된 선수 목록 (맨 위에 표)
     # -----------------------------------------------------
 
+    st.markdown("---")
     st.subheader("등록된 선수 목록")
 
     # ✅ 모바일 표 가독성 개선 CSS (이름 세로 깨짐 방지)
@@ -2178,7 +2179,6 @@ with tab1:
         st.markdown(
             """
             <style>
-            /* tab1 표(데이터프레임) 폰트/패딩 컴팩트 + 줄바꿈 금지 */
             div[data-testid="stDataFrame"] table {
                 font-size: 0.78rem !important;
             }
@@ -2206,9 +2206,14 @@ with tab1:
             except Exception:
                 return "모름"
 
-        # ✅ 표시용 컬럼 확실히 생성
+        # ✅ 표시용 컬럼 정리
+        # - ntrp는 표시용 NTRP로 변환
         df_disp["NTRP"] = df_disp.get("ntrp", None).apply(format_ntrp)
-        df_disp["MBTI"] = df_disp.get("mbti", "모름").fillna("모름")
+
+        # - mbti는 원래 키 유지하면서 값만 보정
+        if "mbti" not in df_disp.columns:
+            df_disp["mbti"] = "모름"
+        df_disp["mbti"] = df_disp["mbti"].fillna("모름")
 
         # ✅ 원본 ntrp 컬럼은 숨김
         if "ntrp" in df_disp.columns:
@@ -2223,10 +2228,14 @@ with tab1:
                 "age_group": "나이대",
                 "racket": "라켓",
                 "group": "실력조",
-                "MBTI": "mbti",
+                "mbti": "MBTI",
                 "NTRP": "NTRP",
             }
         )
+
+        # ✅ (중요) 중복 컬럼/인덱스 안전장치
+        df_disp = df_disp.reset_index(drop=True)
+        df_disp = df_disp.loc[:, ~df_disp.columns.duplicated()]
 
         # ✅ 모바일이면 헤더를 더 짧게 + 핵심 컬럼만
         if mobile_mode:
@@ -2237,10 +2246,13 @@ with tab1:
                 }
             )
 
-            # 폰에서는 폭 줄이려고 핵심만 보여주기
-            keep_cols = ["이름", "나이", "성별", "주손", "라켓", "조", "mbti", "NTRP"]
+            keep_cols = ["이름", "나이", "성별", "주손", "라켓", "조", "MBTI", "NTRP"]
             keep_cols = [c for c in keep_cols if c in df_disp.columns]
             df_disp = df_disp[keep_cols]
+
+            # ✅ 다시 한 번 중복 방지
+            df_disp = df_disp.reset_index(drop=True)
+            df_disp = df_disp.loc[:, ~df_disp.columns.duplicated()]
 
         # ✅ 색상 표시용 메타
         roster_by_name = {p["name"]: p for p in roster}
@@ -2249,20 +2261,23 @@ with tab1:
         group_col = "조" if mobile_mode and "조" in df_disp.columns else "실력조"
 
         for grp in ["A조", "B조", "미배정"]:
-            if group_col not in df_disp.columns:
-                sub = df_disp.copy()
+            if group_col in df_disp.columns:
+                sub = df_disp[df_disp[group_col] == grp].copy()
             else:
-                sub = df_disp[df_disp[group_col] == grp]
+                sub = df_disp.copy()
 
             if sub.empty:
                 continue
 
+            # ✅ (중요) Styler 에러 방지용 최종 안전장치
+            sub = sub.reset_index(drop=True)
+            sub = sub.loc[:, ~sub.columns.duplicated()]
+
             st.markdown(f"■ {grp}")
 
             # ✅ 이름 컬럼만 색칠
-            name_col = "이름" if "이름" in sub.columns else None
-            if name_col:
-                sty = colorize_df_names(sub, roster_by_name, [name_col])
+            if "이름" in sub.columns:
+                sty = colorize_df_names(sub, roster_by_name, ["이름"])
                 smart_table(sty)
             else:
                 smart_table(sub)
