@@ -2083,21 +2083,14 @@ if "shuffle_count" not in st.session_state:
     st.session_state.shuffle_count = 0
 
 
-
 import pandas as pd
 import streamlit as st
 
 
 def _safe_df_for_styler(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    ✅ Styler KeyError 방지용 안전 처리
-    - 인덱스 중복 제거
-    - 컬럼 중복 제거
-    """
     df2 = df.copy()
     df2 = df2.reset_index(drop=True)
 
-    # 혹시라도 같은 컬럼명이 생겼을 때 강제 유니크화
     cols = list(df2.columns)
     seen = {}
     new_cols = []
@@ -2120,31 +2113,47 @@ def colorize_df_names_hybrid(
     male_bg="#dbeafe",
     female_bg="#fee2e2",
 ):
-    """
-    ✅ 하이브리드 컬러 처리
-
-    - PC: pandas Styler로 '이름' 셀 배경색 적용
-    - 모바일: HTML span으로 이름 컬럼 자체를 색 입힌 문자열로 변환
-
-    Return:
-        - mobile_mode=True  -> DataFrame (이름 컬럼에 HTML span 포함)
-        - mobile_mode=False -> pandas Styler
-    """
     name_cols = name_cols or ["이름"]
     mobile_mode = st.session_state.get("mobile_mode", False)
+
+    MUTED_WORDS = {"비밀", "모름"}
+    MUTED_TEXT = "#9ca3af"
+    MUTED_BG = "#f3f4f6"   # 아주 연한 회색
 
     base = df.copy()
 
     # ---------------------------
-    # 모바일: 이름 셀을 HTML span으로 변환
+    # 모바일: HTML span 기반
     # ---------------------------
     if mobile_mode:
+        # 1) 전체 셀에서 비밀/모름 회색 텍스트+배경 처리
+        for col in base.columns:
+            def _muted_html(v):
+                s = str(v)
+                if s in MUTED_WORDS:
+                    return (
+                        f"<span style='"
+                        f"color:{MUTED_TEXT};"
+                        f"background:{MUTED_BG};"
+                        f"padding:0.04rem 0.22rem;"
+                        f"border-radius:0.35rem;"
+                        f"font-weight:600;"
+                        f"display:inline-block;"
+                        f"'>"
+                        f"{s}"
+                        f"</span>"
+                    )
+                return v
+            base[col] = base[col].apply(_muted_html)
+
+        # 2) 이름 컬럼은 성별 배경 뱃지 적용
         for col in name_cols:
             if col not in base.columns:
                 continue
 
             def _name_html(n):
-                meta = roster_by_name.get(str(n), {})
+                raw = str(n)
+                meta = roster_by_name.get(raw, {})
                 g = meta.get("gender")
 
                 bg = male_bg if g == "남" else female_bg if g == "여" else "#f3f4f6"
@@ -2154,9 +2163,9 @@ def colorize_df_names_hybrid(
                     "padding:0.08rem 0.35rem;"
                     "border-radius:0.45rem;"
                     f"background:{bg};"
-                    "font-weight:700;"
+                    "font-weight:800;"
                     "'>"
-                    f"{n}"
+                    f"{raw}"
                     "</span>"
                 )
 
@@ -2165,7 +2174,7 @@ def colorize_df_names_hybrid(
         return base
 
     # ---------------------------
-    # PC: Styler 안전 처리 후 배경색 적용
+    # PC: Styler
     # ---------------------------
     safe = _safe_df_for_styler(base)
 
@@ -2178,7 +2187,7 @@ def colorize_df_names_hybrid(
                 g = meta.get("gender")
                 bg = male_bg if g == "남" else female_bg if g == "여" else "#f3f4f6"
                 styles.append(
-                    "font-weight:700;"
+                    "font-weight:800;"
                     f"background-color:{bg};"
                     "border-radius:8px;"
                 )
@@ -2187,7 +2196,21 @@ def colorize_df_names_hybrid(
         return styles
 
     sty = safe.style.apply(_apply_name_bg, axis=1)
+
+    # ✅ 비밀/모름 글씨+배경 처리
+    def _muted_style(v):
+        if str(v) in MUTED_WORDS:
+            return (
+                f"color:{MUTED_TEXT};"
+                f"background-color:{MUTED_BG};"
+                "font-weight:600;"
+            )
+        return ""
+
+    sty = sty.applymap(_muted_style)
+
     return sty
+
 
 
 def smart_table_hybrid(df_or_styler):
