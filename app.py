@@ -217,7 +217,7 @@ RACKET_OPTIONS = ["모름", "기타", "윌슨", "요넥스", "헤드", "바볼�
 GENDER_OPTIONS = ["남", "여"]
 HAND_OPTIONS = ["오른손", "왼손"]
 GROUP_OPTIONS = ["미배정(게스트)", "A조", "B조"]
-NTRP_OPTIONS = ["모름"] + [f"{x/2:.1f}" for x in range(2, 15)]  # 1.0~7.0
+NTRP_OPTIONS = ["모름"] + [f"{x/10:.1f}" for x in range(10, 71)]  # 1.0~7.0 (0.1 step)
 COURT_TYPES = ["인조잔디", "하드", "클레이"]
 SIDE_OPTIONS = ["포(듀스)", "백(애드)"]
 SCORE_OPTIONS = list(range(0, 7))
@@ -4328,25 +4328,30 @@ with tab3:
                     html_parts = []
                     for p in players:
                         info = roster_by_name.get(p, {}) or {}
-                        gender = info.get("gender") or info.get("성별")
+                        g = info.get("gender")
 
-                        if gender == "여":
-                            bg = "#fee2e2"   # 연한 빨강
-                            color = "#b91c1c"
-                        elif gender == "남":
+                        if g == "남":
                             bg = "#dbeafe"   # 연한 파랑
-                            color = "#1d4ed8"
+                        elif g == "여":
+                            bg = "#fee2e2"   # 연한 빨강
                         else:
-                            bg = "#e5e7eb"
-                            color = "#374151"
+                            bg = "#f3f4f6"   # 회색
 
                         html_parts.append(
-                            f"<span class='name-badge' style='display:inline-block;"
-                            f"padding:3px 10px;border-radius:999px;background:{bg};"
-                            f"color:{color};font-size:0.78rem;margin-right:4px;'>{p}</span>"
+                            f"<span class='name-badge' style='"
+                            f"background:{bg};"
+                            f"padding:3px 8px;"
+                            f"border-radius:8px;"
+                            f"margin-right:4px;"
+                            f"font-weight:700;"
+                            f"color:#111111;"
+                            f"display:inline-block;"
+                            f"white-space:nowrap;"
+                            f"'>"
+                            f"{p}"
+                            f"</span>"
                         )
-                    return " ".join(html_parts)
-
+                    return "".join(html_parts)
                 # 라디오 옵션에 붙일 성별 색상 라벨 (남 🔵 / 여 🔴)
                 def gender_badge_label(name: str) -> str:
                     if name == "모름":
@@ -4900,6 +4905,39 @@ with tab3:
                             df_players = pd.DataFrame(rows)
                             df_players = df_players.set_index("번호")
                             df_players.index.name = ""
+
+                            df_players.index.name = None
+                            df_players.columns.name = None
+                            def calc_wdl(values):
+                                w = d = l = 0
+                                for v in values:
+                                    if not isinstance(v, str):
+                                        continue
+                                    s = v.replace(" ", "")
+                                    if ":" not in s:
+                                        continue
+                                    left, right = s.split(":", 1)
+                                    try:
+                                        a = int(left)
+                                        b = int(right)
+                                    except ValueError:
+                                        continue
+                            
+                                    if a > b:
+                                        w += 1
+                                    elif a == b:
+                                        d += 1
+                                    else:
+                                        l += 1
+                                return pd.Series([w, d, l], index=["승", "무", "패"])
+                            
+                            game_cols = ["1게임", "2게임", "3게임", "4게임"]
+                            df_players[["승", "무", "패"]] = df_players[game_cols].apply(calc_wdl, axis=1)
+                            
+                            # (원하면 컬럼 순서 바꾸기: 이름 다음에 승무패 나오게)
+                            df_players = df_players[["이름", "승", "무", "패"] + game_cols]
+
+
 
                             # 이긴 게임 / 진 게임 색
                             def highlight_win_loss(val):
