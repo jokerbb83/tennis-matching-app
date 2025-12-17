@@ -23,6 +23,77 @@ st.set_page_config(
 )
 
 
+components.html(
+    """
+<script>
+(function () {
+  const doc = window.parent.document;
+  const win = window.parent;
+
+  function isMobile(){
+    return win.matchMedia("(max-width: 900px)").matches ||
+           /Android|iPhone|iPad|iPod/i.test(win.navigator.userAgent);
+  }
+
+  // Streamlit(BaseWeb)에서 키보드 올라오는 대표 input들
+  const SELECTORS = [
+    'div[data-baseweb="select"] input',        // selectbox/multiselect 내부 input
+    'div[data-baseweb="datepicker"] input',    // date_input 내부 input
+    '[data-testid="stSelectbox"] input',
+    '[data-testid="stMultiSelect"] input',
+    '[data-testid="stDateInput"] input',
+    'div[role="combobox"] input'
+  ].join(',');
+
+  function harden(inp){
+    if(!inp) return;
+
+    inp.setAttribute("readonly", "true");
+    inp.setAttribute("inputmode", "none");
+    inp.setAttribute("autocomplete", "off");
+    inp.setAttribute("autocorrect", "off");
+    inp.setAttribute("autocapitalize", "off");
+    inp.setAttribute("spellcheck", "false");
+
+    // 포커스 잡히면 즉시 해제
+    inp.addEventListener("focus", (e) => {
+      e.target.blur();
+    }, { passive: true });
+
+    inp.style.caretColor = "transparent";
+
+    // ✅ selectbox/multiselect는 input 터치 자체를 막고(부모 클릭으로 열리게) 키보드 완전 차단
+    // (date_input은 pointer-events 막으면 달력 안 열릴 수 있어서 제외)
+    if (inp.closest('div[data-baseweb="select"]')) {
+      inp.style.pointerEvents = "none";
+      inp.setAttribute("tabindex", "-1");
+    }
+  }
+
+  function patch(){
+    if(!isMobile()) return;
+    doc.querySelectorAll(SELECTORS).forEach(harden);
+  }
+
+  // 캡처 단계에서 포커스 들어오면 바로 blur
+  doc.addEventListener("focusin", (e) => {
+    if(!isMobile()) return;
+    const t = e.target;
+    if (t && t.matches && t.matches(SELECTORS)) {
+      t.blur();
+    }
+  }, true);
+
+  patch();
+  new MutationObserver(patch).observe(doc.body, { childList: true, subtree: true });
+})();
+</script>
+""",
+    height=0,
+)
+
+
+
 components.html("""
 <script>
 (function () {
