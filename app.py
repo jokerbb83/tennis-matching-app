@@ -22,7 +22,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ✅ 모바일: selectbox는 키보드 완전 차단 / date_input은 키보드만 막고 달력은 열리게
 components.html(
     """
 <script>
@@ -57,61 +56,25 @@ components.html(
     inp.style.caretColor = "transparent";
   }
 
-  // ✅ Selectbox: input 터치 자체를 막아서 키보드가 절대 안 뜨게
+  // ✅ Selectbox: 키보드 완전 차단(입력창 터치 불가)
   function hardenSelect(inp){
     common(inp);
     inp.style.pointerEvents = "none";
     inp.setAttribute("tabindex", "-1");
   }
 
-  // ✅ DateInput: 키보드 포커스만 막고, 대신 달력 열기 액션을 트리거
-  function hardenDate(inp){
+  // ✅ DateInput: readonly만 걸고 "클릭/포커스 이벤트는 그대로" 두기 (달력 열리게)
+  function softenDate(inp){
     common(inp);
-    inp.setAttribute("tabindex", "-1");
-
-    // 이미 달린 리스너 중복 방지
-    if (inp.__msa_patched_date) return;
-    inp.__msa_patched_date = true;
-
-    function openCalendar(){
-      const root = inp.closest('div[data-baseweb="datepicker"]') || inp.closest('[data-testid="stDateInput"]');
-      if(!root) return;
-
-      // 달력 아이콘 버튼이 있으면 그걸 클릭 (가장 안정적)
-      const btn = root.querySelector('button');
-      if(btn) btn.click();
-      else root.click();
-    }
-
-    // 포커스가 생기기 전에 막기 (키보드 방지)
-    inp.addEventListener("pointerdown", (e) => {
-      if(!isMobile()) return;
-      e.preventDefault();
-      e.stopPropagation();
-      openCalendar();
-    }, true);
-
-    // 일부 WebView는 touchstart/mousedown이 더 잘 먹음
-    inp.addEventListener("touchstart", (e) => {
-      if(!isMobile()) return;
-      e.preventDefault();
-      e.stopPropagation();
-      openCalendar();
-    }, {passive:false, capture:true});
-
-    inp.addEventListener("mousedown", (e) => {
-      if(!isMobile()) return;
-      e.preventDefault();
-      e.stopPropagation();
-      openCalendar();
-    }, true);
+    inp.style.pointerEvents = "auto";
+    inp.removeAttribute("tabindex");
   }
 
   function patch(){
     if(!isMobile()) return;
 
     doc.querySelectorAll(SEL_SELECT).forEach(hardenSelect);
-    doc.querySelectorAll(SEL_DATE).forEach(hardenDate);
+    doc.querySelectorAll(SEL_DATE).forEach(softenDate);
   }
 
   patch();
@@ -121,7 +84,6 @@ components.html(
 """,
     height=0,
 )
-
 
 components.html("""
 <script>
