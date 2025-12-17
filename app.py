@@ -10,10 +10,11 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 import plotly.express as px
-
+import streamlit as st
+import streamlit.components.v1 as components
 
 # ---------------------------------------------------------
-# Streamlit 초기화 (✅ 딱 1번만)
+# Streamlit 초기화 (✅ 딱 1번만 / 제일 위에서)
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="마리아 상암포바 도우미 MSA (Beta)",
@@ -21,185 +22,34 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# ---------------------------------------------------------
+# ✅ Streamlit 상/하단 크레딧/툴바 숨김 + 라이트 고정 CSS (한 방)
+# ---------------------------------------------------------
 st.markdown("""
 <style>
 /* Streamlit 기본 메뉴/헤더/푸터 숨김 */
 #MainMenu {visibility: hidden;}
-header {visibility: hidden;}
 footer {visibility: hidden;}
+header {visibility: hidden;}
 
-/* 상단 툴바/오른쪽 아이콘 영역 숨김(버전에 따라 testid가 달라서 같이 잡아줌) */
+/* 상단 툴바/장식/상태 아이콘 숨김 */
 div[data-testid="stToolbar"] {visibility: hidden !important; height: 0 !important;}
 div[data-testid="stDecoration"] {visibility: hidden !important;}
 div[data-testid="stStatusWidget"] {visibility: hidden !important;}
-
-/* 배포 버튼(있으면) 숨김 */
 .stDeployButton {display: none !important;}
-</style>
-""", unsafe_allow_html=True)
 
-
-
-import streamlit as st
-import streamlit.components.v1 as components
-
-st.set_page_config(page_title="MSA (Beta)", layout="centered", initial_sidebar_state="collapsed")
-
-# ✅ 카톡 인앱브라우저 다크모드 강제 대응 (드롭다운/라디오 팝업까지 라이트로)
-components.html(
-    """
-<script>
-(function () {
-  const doc = window.parent.document;
-
-  // meta: color-scheme 강제 (지원되는 WebView에서 효과)
-  function upsertMeta(name, content){
-    let m = doc.querySelector(`meta[name="${name}"]`);
-    if(!m){ m = doc.createElement("meta"); m.setAttribute("name", name); doc.head.appendChild(m); }
-    m.setAttribute("content", content);
-  }
-  upsertMeta("color-scheme", "light");
-  upsertMeta("supported-color-schemes", "light");
-
-  // style: baseweb(스트림릿 selectbox/radio 내부 UI)까지 흰색 강제
-  const styleId = "force-light-mode-kakao";
-  let style = doc.getElementById(styleId);
-  if(!style){ style = doc.createElement("style"); style.id = styleId; doc.head.appendChild(style); }
-
-  style.innerHTML = `
-    :root { color-scheme: light !important; }
-    html, body, [data-testid="stAppViewContainer"] {
-      background: #ffffff !important;
-      color: #111827 !important;
-    }
-
-    /* ✅ 드롭다운/달력/팝오버(Selectbox/DateInput/Multiselect) 팝업 */
-    div[data-baseweb="popover"],
-    div[data-baseweb="menu"],
-    ul[role="listbox"], div[role="listbox"]{
-      background: #ffffff !important;
-      color: #111827 !important;
-      border: 1px solid rgba(0,0,0,0.08) !important;
-    }
-    div[data-baseweb="popover"] * ,
-    div[data-baseweb="menu"] * ,
-    ul[role="listbox"] * ,
-    div[role="listbox"] * {
-      color: #111827 !important;
-      background-color: transparent;
-    }
-
-    /* 선택/호버 배경 */
-    div[data-baseweb="menu"] div[role="option"][aria-selected="true"],
-    ul[role="listbox"] li[aria-selected="true"]{
-      background: #f3f4f6 !important;
-    }
-    div[data-baseweb="menu"] div[role="option"]:hover,
-    ul[role="listbox"] li:hover{
-      background: #e5e7eb !important;
-    }
-
-    /* 라디오/체크 라벨 글자색 */
-    [data-testid="stRadio"] label,
-    [data-testid="stRadio"] div {
-      color: #111827 !important;
-    }
-  `;
-})();
-</script>
-""",
-    height=0,
-)
-
-
-
-# ✅ 모바일에서만 selectbox 키보드 방지 (JS)
-components.html(
-    """
-    <script>
-    (function() {
-      function isMobile() {
-        return window.matchMedia("(max-width: 768px)").matches;
-      }
-
-      function patchSelectInputs() {
-        if (!isMobile()) return;
-
-        const inputs = document.querySelectorAll('div[data-baseweb="select"] input');
-        inputs.forEach((inp) => {
-          inp.setAttribute('readonly', 'true');
-          inp.setAttribute('inputmode', 'none');
-          inp.setAttribute('tabindex', '-1');
-          inp.setAttribute('autocomplete', 'off');
-          inp.setAttribute('autocorrect', 'off');
-          inp.setAttribute('autocapitalize', 'off');
-          inp.setAttribute('spellcheck', 'false');
-
-          inp.addEventListener('focus', (e) => {
-            e.target.blur();
-          }, { passive: true });
-
-          inp.style.pointerEvents = "none";
-          inp.style.caretColor = "transparent";
-        });
-      }
-
-      patchSelectInputs();
-
-      const observer = new MutationObserver(() => {
-        patchSelectInputs();
-      });
-
-      observer.observe(document.body, { childList: true, subtree: true });
-    })();
-    </script>
-    """,
-    height=0,
-)
-
-
-
-
-# ---------- 라이트 모드 강제 스타일 ----------
-st.markdown("""
-<style>
-/* 기본 컬러 & 라이트 모드 고정 */
-:root {
-    --background-color: #ffffff;
-    --secondary-background-color: #ffffff;
-    --primary-background-color: #ffffff;
-    --text-color: #111827;
-    --primary-text-color: #111827;
-    --secondary-text-color: #4b5563;
-    color-scheme: light;
-}
-
-/* 앱 전체 배경 & 글자색 */
+/* ✅ 라이트 모드 강제 */
+:root { color-scheme: light !important; }
 html, body, [data-testid="stAppViewContainer"] {
-    background-color: #ffffff !important;
-    color: #111827 !important;
+  background: #ffffff !important;
+  color: #111827 !important;
 }
 
-/* 메인 컨테이너 – 모바일 상단 잘림 방지 */
-main.block-container {
-    padding-top: 3.5rem !important;
-    margin-top: 0 !important;
-}
-
-/* 헤더 / 사이드바 */
-header[data-testid="stHeader"],
-section[data-testid="stSidebar"] {
-    background-color: #ffffff !important;
-    color: #111827 !important;
-}
-
-/* 공통 입력 요소 - 텍스트/셀렉트/숫자 */
+/* 입력 UI 흰색 고정 */
 input, textarea, select {
-    background-color: #ffffff !important;
-    color: #111827 !important;
+  background-color: #ffffff !important;
+  color: #111827 !important;
 }
-
-/* Selectbox / Multiselect / NumberInput / TextInput 박스 */
 [data-testid="stSelectbox"] > div > div,
 [data-testid="stMultiSelect"] > div > div,
 [data-testid="stNumberInput"] > div > div:first-child,
@@ -208,91 +58,94 @@ div[role="combobox"],
 div[role="spinbutton"],
 [data-baseweb="select"],
 [data-baseweb="input"] {
-    background-color: #ffffff !important;
-    color: #111827 !important;
-    border: 1px solid #e5e7eb !important;
+  background-color: #ffffff !important;
+  color: #111827 !important;
+  border: 1px solid #e5e7eb !important;
 }
 
-/* 드롭다운 펼친 리스트 */
-[data-baseweb="popover"],
-[data-baseweb="menu"],
-div[role="listbox"] {
-    background-color: #ffffff !important;
-    color: #111827 !important;
+/* 드롭다운/달력/팝오버(카톡 인앱에서 까매지는 부분) */
+div[data-baseweb="popover"],
+div[data-baseweb="menu"],
+ul[role="listbox"], div[role="listbox"]{
+  background: #ffffff !important;
+  color: #111827 !important;
+  border: 1px solid rgba(0,0,0,0.08) !important;
+}
+div[data-baseweb="popover"] *,
+div[data-baseweb="menu"] *,
+ul[role="listbox"] *,
+div[role="listbox"] * {
+  color: #111827 !important;
 }
 
-/* 옵션 하나하나 */
-[data-baseweb="menu"] ul li {
-    background-color: #ffffff !important;
-    color: #111827 !important;
+/* 선택/호버 */
+div[data-baseweb="menu"] div[role="option"][aria-selected="true"],
+ul[role="listbox"] li[aria-selected="true"]{
+  background: #f3f4f6 !important;
 }
-[data-baseweb="menu"] ul li:hover {
-    background-color: #f3f4f6 !important;
-}
-
-/* 체크박스/라디오 라벨 텍스트 */
-label[data-testid="stMarkdownContainer"],
-span[data-baseweb="typo"],
-[data-testid="stRadio"] label,
-[data-testid="stCheckbox"] label,
-[data-testid="stSelectbox"] label,
-[data-testid="stMultiSelect"] label,
-[data-testid="stNumberInput"] label,
-[data-testid="stTextInput"] label {
-    color: #111827 !important;
-}
-
-/* 체크박스/라디오 아이콘 주변 배경 */
-[data-testid="stCheckbox"] > label > div:first-child,
-[data-testid="stRadio"] > label > div:first-child {
-    background-color: #ffffff !important;
-}
-
-/* 숫자 입력 + / - 버튼 */
-[data-testid="stNumberInput"] button {
-    background-color: #ffffff !important;
-    color: #111827 !important;
-    border-color: #e5e7eb !important;
-}
-
-/* 표(st.table) */
-[data-testid="stTable"] table,
-[data-testid="stTable"] table thead tr th,
-[data-testid="stTable"] table tbody tr td {
-    background-color: #ffffff !important;
-    color: #111827 !important;
-}
-
-/* 표(st.dataframe) – 월간 선수 순위표 같은 것 */
-[data-testid="stDataFrame"] div[role="grid"],
-[data-testid="stDataFrame"] div[role="row"],
-[data-testid="stDataFrame"] div[role="cell"],
-[data-testid="stDataFrame"] div[role="columnheader"] {
-    background-color: #ffffff !important;
-    color: #111827 !important;
-}
-
-/* dataframe 헤더만 살짝 회색 */
-[data-testid="stDataFrame"] div[role="columnheader"] {
-    background-color: #f3f4f6 !important;
-    font-weight: 600;
-}
-
-/* 기본 텍스트들 색 통일 */
-[data-testid="stMarkdownContainer"],
-p, span, li,
-h1, h2, h3, h4, h5, h6 {
-    color: #111827 !important;
-}
-
-/* 내가 만든 상단 탭 메뉴 텍스트(있다면) */
-.tabs-container span,
-.tabs-container p {
-    color: #111827 !important;
+div[data-baseweb="menu"] div[role="option"]:hover,
+ul[role="listbox"] li:hover{
+  background: #e5e7eb !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
+# ---------------------------------------------------------
+# ✅ 카톡 인앱브라우저 다크모드 “메타”까지 라이트로 고정 (보조)
+# ---------------------------------------------------------
+components.html("""
+<script>
+(function () {
+  const doc = window.parent?.document || document;
+
+  function upsertMeta(name, content){
+    let m = doc.querySelector(`meta[name="${name}"]`);
+    if(!m){ m = doc.createElement("meta"); m.setAttribute("name", name); doc.head.appendChild(m); }
+    m.setAttribute("content", content);
+  }
+  upsertMeta("color-scheme", "light");
+  upsertMeta("supported-color-schemes", "light");
+})();
+</script>
+""", height=0)
+
+# ---------------------------------------------------------
+# ✅ 모바일에서만 selectbox 키보드 방지 (너 기존 유지)
+# ---------------------------------------------------------
+components.html("""
+<script>
+(function() {
+  function isMobile() {
+    return window.matchMedia("(max-width: 768px)").matches;
+  }
+
+  function patchSelectInputs() {
+    if (!isMobile()) return;
+
+    const inputs = document.querySelectorAll('div[data-baseweb="select"] input');
+    inputs.forEach((inp) => {
+      inp.setAttribute('readonly', 'true');
+      inp.setAttribute('inputmode', 'none');
+      inp.setAttribute('tabindex', '-1');
+      inp.setAttribute('autocomplete', 'off');
+      inp.setAttribute('autocorrect', 'off');
+      inp.setAttribute('autocapitalize', 'off');
+      inp.setAttribute('spellcheck', 'false');
+
+      inp.addEventListener('focus', (e) => { e.target.blur(); }, { passive: true });
+
+      inp.style.pointerEvents = "none";
+      inp.style.caretColor = "transparent";
+    });
+  }
+
+  patchSelectInputs();
+
+  const observer = new MutationObserver(() => { patchSelectInputs(); });
+  observer.observe(document.body, { childList: true, subtree: true });
+})();
+</script>
+""", height=0)
 
 
 
