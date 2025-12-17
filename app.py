@@ -21,6 +21,78 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+import streamlit as st
+import streamlit.components.v1 as components
+
+st.set_page_config(page_title="MSA (Beta)", layout="centered", initial_sidebar_state="collapsed")
+
+# ✅ 카톡 인앱브라우저 다크모드 강제 대응 (드롭다운/라디오 팝업까지 라이트로)
+components.html(
+    """
+<script>
+(function () {
+  const doc = window.parent.document;
+
+  // meta: color-scheme 강제 (지원되는 WebView에서 효과)
+  function upsertMeta(name, content){
+    let m = doc.querySelector(`meta[name="${name}"]`);
+    if(!m){ m = doc.createElement("meta"); m.setAttribute("name", name); doc.head.appendChild(m); }
+    m.setAttribute("content", content);
+  }
+  upsertMeta("color-scheme", "light");
+  upsertMeta("supported-color-schemes", "light");
+
+  // style: baseweb(스트림릿 selectbox/radio 내부 UI)까지 흰색 강제
+  const styleId = "force-light-mode-kakao";
+  let style = doc.getElementById(styleId);
+  if(!style){ style = doc.createElement("style"); style.id = styleId; doc.head.appendChild(style); }
+
+  style.innerHTML = `
+    :root { color-scheme: light !important; }
+    html, body, [data-testid="stAppViewContainer"] {
+      background: #ffffff !important;
+      color: #111827 !important;
+    }
+
+    /* ✅ 드롭다운/달력/팝오버(Selectbox/DateInput/Multiselect) 팝업 */
+    div[data-baseweb="popover"],
+    div[data-baseweb="menu"],
+    ul[role="listbox"], div[role="listbox"]{
+      background: #ffffff !important;
+      color: #111827 !important;
+      border: 1px solid rgba(0,0,0,0.08) !important;
+    }
+    div[data-baseweb="popover"] * ,
+    div[data-baseweb="menu"] * ,
+    ul[role="listbox"] * ,
+    div[role="listbox"] * {
+      color: #111827 !important;
+      background-color: transparent;
+    }
+
+    /* 선택/호버 배경 */
+    div[data-baseweb="menu"] div[role="option"][aria-selected="true"],
+    ul[role="listbox"] li[aria-selected="true"]{
+      background: #f3f4f6 !important;
+    }
+    div[data-baseweb="menu"] div[role="option"]:hover,
+    ul[role="listbox"] li:hover{
+      background: #e5e7eb !important;
+    }
+
+    /* 라디오/체크 라벨 글자색 */
+    [data-testid="stRadio"] label,
+    [data-testid="stRadio"] div {
+      color: #111827 !important;
+    }
+  `;
+})();
+</script>
+""",
+    height=0,
+)
+
+
 
 # ✅ 모바일에서만 selectbox 키보드 방지 (JS)
 components.html(
@@ -5009,7 +5081,6 @@ with tab4:
         else:
             sel_player = st.selectbox("선수 선택", names_sorted, key="stat_player_select")
 
-
             # 🎾 오늘의 테니스 운세
             if sel_player:
                 fortune_text = get_daily_fortune(sel_player)
@@ -5035,7 +5106,9 @@ with tab4:
                     unsafe_allow_html=True,
                 )
 
-
+            # -------------------------------
+            # 기간 선택
+            # -------------------------------
             range_mode = st.radio("기간 선택", ["전체 시즌", "월별"], horizontal=True)
             month_key = None
             if range_mode == "월별":
@@ -5049,10 +5122,17 @@ with tab4:
                     )
                     month_key = sel_month
 
+            # -------------------------------
+            # 통계 누적용 변수
+            # -------------------------------
             rec = {
                 "G": 0, "W": 0, "D": 0, "L": 0, "points": 0,
                 "score_for": 0, "score_against": 0
             }
+
+            # ✅ 이 선수가 경기를 한 날짜(점수 있는 경기 기준)
+            player_days = set()
+
             vs_opponent = defaultdict(lambda: {"G": 0, "W": 0, "D": 0, "L": 0})
             with_partner = defaultdict(lambda: {"G": 0, "W": 0, "D": 0, "L": 0})
             by_court_type = defaultdict(lambda: {"G": 0, "W": 0, "D": 0, "L": 0})
@@ -5063,10 +5143,13 @@ with tab4:
             by_hand = defaultdict(lambda: {"G": 0, "W": 0, "D": 0, "L": 0})
             by_mbti = defaultdict(lambda: {"G": 0, "W": 0, "D": 0, "L": 0})
 
-
+            # -------------------------------
+            # 경기 순회
+            # -------------------------------
             for d, idx, g in iter_games(sessions, include_special=False):
                 if month_key and not d.startswith(month_key):
                     continue
+
                 t1, t2 = g["t1"], g["t2"]
                 s1, s2 = g["score1"], g["score2"]
                 r = calc_result(s1, s2)
@@ -5078,14 +5161,19 @@ with tab4:
                 if not (in_t1 or in_t2):
                     continue
 
+                # ✅ 점수 있는 경기에서만 '출석일'로 카운트
+                player_days.add(d)
+
                 rec["G"] += 1
                 if in_t1:
                     my_score, opp_score = s1, s2
                 else:
                     my_score, opp_score = s2, s1
+
                 rec["score_for"] += my_score if my_score is not None else 0
                 rec["score_against"] += opp_score if opp_score is not None else 0
 
+                # 결과(내 기준)
                 if (in_t1 and r == "W") or (in_t2 and r == "L"):
                     rec["W"] += 1
                     rec["points"] += WIN_POINT
@@ -5099,10 +5187,10 @@ with tab4:
                     rec["points"] += DRAW_POINT
                     res_self = "D"
 
-                court_type = g["court_type"]
+                # 코트 타입별
+                court_type = g.get("court_type", "모름")
                 by_court_type[court_type]["G"] += 1
                 by_court_type[court_type][res_self] += 1
-
 
                 # 코트 사이드(포/백) 통계
                 sides = g.get("sides", {})
@@ -5125,9 +5213,7 @@ with tab4:
                         by_side[side_key]["G"] += 1
                         by_side[side_key][res_self] += 1
 
-
-
-
+                # 파트너/상대
                 if in_t1:
                     partners = [x for x in t1 if x != sel_player]
                     opponents = t2
@@ -5142,8 +5228,7 @@ with tab4:
                     with_partner[pt]["G"] += 1
                     with_partner[pt][res_self] += 1
 
-
-
+                # 상대의 메타(라켓/NTRP/성별/주손/MBTI)로 분류
                 for person in opponents:
                     m = roster_by_name.get(person, {})
 
@@ -5176,8 +5261,9 @@ with tab4:
                         by_mbti[mbti]["G"] += 1
                         by_mbti[mbti][res_self] += 1
 
-
-
+            # -------------------------------
+            # 요약 출력
+            # -------------------------------
             st.subheader(f"{sel_player} 요약 ({'전체' if not month_key else month_key})")
             if rec["G"] == 0:
                 st.info("해당 기간에 경기 기록이 없습니다.")
@@ -5185,6 +5271,7 @@ with tab4:
                 win_rate = rec["W"] / rec["G"] * 100
                 avg_for = rec["score_for"] / rec["G"]
                 avg_against = rec["score_against"] / rec["G"]
+
                 st.write(f"- 경기수: {rec['G']}")
                 st.write(f"- 승 / 무 / 패: {rec['W']} / {rec['D']} / {rec['L']}")
                 st.write(f"- 승률: {win_rate:.1f}%")
@@ -5192,9 +5279,22 @@ with tab4:
                 st.write(f"- 평균 득점: {avg_for:.2f} 점")
                 st.write(f"- 평균 실점: {avg_against:.2f} 점")
 
+                # ✅ 하루 평균 승/무/패
+                days_cnt = len(player_days)
+                if days_cnt > 0:
+                    avg_w = rec["W"] / days_cnt
+                    avg_d = rec["D"] / days_cnt
+                    avg_l = rec["L"] / days_cnt
+                    st.write(
+                        f"- 하루 평균 승/무/패: {avg_w:.1f}승 / {avg_d:.1f}무 / {avg_l:.1f}패 (총 {days_cnt}일 기준)"
+                    )
+
             st.markdown("---")
             cL, cR = st.columns(2)
 
+            # -------------------------------
+            # 좌측: 상대/파트너
+            # -------------------------------
             with cL:
                 st.markdown("상대별 승률")
                 if vs_opponent:
@@ -5216,15 +5316,14 @@ with tab4:
                     if rows:
                         df_vs = pd.DataFrame(rows).sort_values(
                             ["승률", "경기수"], ascending=False
-                        ).reset_index(drop=True)      # 기존 인덱스 제거
+                        ).reset_index(drop=True)
 
-                        df_vs.index = df_vs.index + 1  # 1부터 시작
-                        df_vs.index.name = "순위"      # 인덱스 이름
+                        df_vs.index = df_vs.index + 1
+                        df_vs.index.name = "순위"
 
                         sty_vs = colorize_df_names(df_vs, roster_by_name, ["상대"])
                         sty_vs = sty_vs.format({"승률": "{:.1f}%"})
                         st.dataframe(sty_vs, use_container_width=True)
-
                     else:
                         st.info("상대 기록이 없습니다.")
                 else:
@@ -5258,44 +5357,39 @@ with tab4:
                         sty_pt = colorize_df_names(df_pt, roster_by_name, ["파트너"])
                         sty_pt = sty_pt.format({"승률": "{:.1f}%"})
                         st.dataframe(sty_pt, use_container_width=True)
-
                     else:
                         st.info("파트너 기록이 없습니다.")
                 else:
                     st.info("파트너 기록이 없습니다.")
 
+            # -------------------------------
+            # 우측: 그룹별 통계
+            # -------------------------------
             with cR:
-
-
                 def make_group_df(title, data_dict, label):
                     st.markdown(title)
                     if not data_dict:
                         st.info("데이터 없음")
                         return
+
                     rows = []
                     for k, r in data_dict.items():
                         if r["G"] == 0:
                             continue
 
                         # ✔ 통계에서 제외할 값 필터
-                        # 나이: "비밀" (지금은 나이 표는 없지만 혹시 확장용)
                         if label == "연령대" and k == "비밀":
                             continue
-                        # 라켓: "모름" 제외
                         if label == "라켓" and k == "모름":
                             continue
-                        # 실력조: "미배정" 제외 (향후 그룹 통계용)
                         if label == "실력조" and k == "미배정":
                             continue
-                        # NTRP: "모름" / "0.0" 같은 placeholder 제외
                         if label == "NTRP" and k in ("모름", "0.0"):
                             continue
                         if label == "사이드" and k == "모름":
                             continue
-
                         if label == "MBTI" and k in ("", "모름"):
                             continue
-
 
                         rows.append(
                             {
@@ -5307,7 +5401,6 @@ with tab4:
                                 "승률": r["W"] / r["G"] * 100,
                             }
                         )
-
 
                     if not rows:
                         st.info("데이터 없음")
@@ -5350,8 +5443,7 @@ with tab5:
             sel_month = st.selectbox("월 선택 (YYYY-MM)", months, index=len(months) - 1)
 
             # ---------------------------------------------------------
-            # 1) 이 달의 게임 모으기
-            #    - 스페셜 매치 날짜는 제외
+            # 1) 이 달의 게임 모으기 (스페셜 매치 제외)
             # ---------------------------------------------------------
             month_games = []
             for d, idx, g in iter_games(sessions, include_special=False):
@@ -5374,12 +5466,16 @@ with tab5:
                     key="month_rank_view_mode",
                 )
 
-                # 전체 / A / B 각각 기록
+                # ---------------------------------------------------------
+                # ✅ 집계는 '항상 전체 기준'으로 1번만 만든다
+                #    - 출석일수/경기수: 점수 없어도(결과 None) 참여하면 카운트
+                #    - 승/무/패/점수/득실: 점수가 있을 때만 반영
+                # ---------------------------------------------------------
                 def make_recs():
                     return defaultdict(
                         lambda: {
-                            "days": set(),
-                            "G": 0,
+                            "days": set(),          # 출석 날짜들
+                            "G": 0,                 # 참여 경기수(점수 없어도 포함)
                             "W": 0,
                             "D": 0,
                             "L": 0,
@@ -5390,27 +5486,25 @@ with tab5:
                     )
 
                 recs_all = make_recs()
-                recs_A = make_recs()
-                recs_B = make_recs()
-
                 partners_by_player = defaultdict(set)
 
-                # ---------------------------------------------------------
-                # ✅ 게스트 개인 통계 제외용 업데이트 함수
-                # ---------------------------------------------------------
                 def update_recs(target_recs, d, t1, t2, s1, s2, r):
                     players_all = t1 + t2
 
-                    # 출석/경기수
+                    # 1) 출석/경기수(참여) — 점수 없어도 카운트
                     for p in players_all:
                         if is_guest_name(p, roster):
                             continue
                         target_recs[p]["days"].add(d)
                         target_recs[p]["G"] += 1
 
-                    # 득/실
-                    s1_val = s1 or 0
-                    s2_val = s2 or 0
+                    # 2) 점수 없으면 여기서 종료 (승/무/패/득실은 미반영)
+                    if r is None:
+                        return
+
+                    # 3) 득/실 (점수 있을 때만)
+                    s1_val = s1 if (s1 is not None) else 0
+                    s2_val = s2 if (s2 is not None) else 0
 
                     for p in t1:
                         if is_guest_name(p, roster):
@@ -5424,7 +5518,7 @@ with tab5:
                         target_recs[p]["score_for"] += s2_val
                         target_recs[p]["score_against"] += s1_val
 
-                    # 승/무/패 + 점수
+                    # 4) 승/무/패 + 점수
                     if r == "W":
                         for p in t1:
                             if is_guest_name(p, roster):
@@ -5449,7 +5543,7 @@ with tab5:
                             target_recs[p]["W"] += 1
                             target_recs[p]["points"] += WIN_POINT
 
-                    else:
+                    else:  # "D"
                         for p in players_all:
                             if is_guest_name(p, roster):
                                 continue
@@ -5457,34 +5551,17 @@ with tab5:
                             target_recs[p]["points"] += DRAW_POINT
 
                 # ---------------------------------------------------------
-                # 1-1) 월간 데이터 집계
+                # 1-1) 월간 데이터 집계 (전체 기준 1회)
                 # ---------------------------------------------------------
                 for d, idx, g in month_games:
                     t1, t2 = g["t1"], g["t2"]
                     s1, s2 = g["score1"], g["score2"]
-                    r = calc_result(s1, s2)
-                    if r is None:
-                        continue
+                    r = calc_result(s1, s2)  # 점수 없으면 None
 
-                    # 이 경기 조(A/B/기타) 판별 (그 날짜 스냅샷 우선)
-                    all_players = t1 + t2
-                    day_groups_snapshot = sessions.get(d, {}).get("groups_snapshot")
-                    grp_flag = classify_game_group(
-                        all_players,
-                        roster_by_name,
-                        day_groups_snapshot,
-                    )
-
-                    # 전체 기록
+                    # 전체 기록(참여는 항상, 결과는 점수 있을 때만)
                     update_recs(recs_all, d, t1, t2, s1, s2, r)
 
-                    # A/B 기록
-                    if grp_flag == "A":
-                        update_recs(recs_A, d, t1, t2, s1, s2, r)
-                    elif grp_flag == "B":
-                        update_recs(recs_B, d, t1, t2, s1, s2, r)
-
-                    # 🤝 파트너 집계 (게스트 파트너는 '게스트'로 묶음)
+                    # 🤝 파트너 집계 (점수 없어도 복식이면 파트너는 만난 걸로)
                     for team in (t1, t2):
                         if len(team) >= 2:
                             for i, p in enumerate(team):
@@ -5495,22 +5572,71 @@ with tab5:
                                         continue
                                     partners_by_player[p].add(guest_bucket(q, roster))
 
-                # 👉 BEST 계산용 recs는 전체 기준 유지
-                recs = recs_all
+                # ---------------------------------------------------------
+                # ✅ "조별 보기"는 선수만 A/B로 분리 (집계는 동일 recs_all)
+                #    - 그 달에 groups_snapshot이 있으면 그걸 우선 참고
+                #    - 없으면 roster_by_name의 group 사용
+                # ---------------------------------------------------------
+                def normalize_group(g):
+                    if not g:
+                        return None
+                    if g in ("A", "A조", "A조 ", "A group"):
+                        return "A"
+                    if g in ("B", "B조", "B조 ", "B group"):
+                        return "B"
+                    if g == "A조":
+                        return "A"
+                    if g == "B조":
+                        return "B"
+                    # roster에 "A조"/"B조"로 들어있는 경우
+                    if "A" in str(g) and "조" in str(g):
+                        return "A"
+                    if "B" in str(g) and "조" in str(g):
+                        return "B"
+                    return None
+
+                # 선수별 월 그룹 결정(해당 월 출석일들의 snapshot/roster를 보고 다수결)
+                player_month_group = {}
+                for name, rr in recs_all.items():
+                    if is_guest_name(name, roster):
+                        continue
+                    if rr["G"] == 0:
+                        continue
+
+                    cnt = Counter()
+                    for d in rr["days"]:
+                        snap = sessions.get(d, {}).get("groups_snapshot") or {}
+                        g = snap.get(name)
+                        if not g:
+                            g = roster_by_name.get(name, {}).get("group")
+                        ng = normalize_group(g)
+                        if ng in ("A", "B"):
+                            cnt[ng] += 1
+
+                    if cnt:
+                        player_month_group[name] = cnt.most_common(1)[0][0]
+                    else:
+                        # 마지막 fallback: roster 기준
+                        g = roster_by_name.get(name, {}).get("group")
+                        player_month_group[name] = normalize_group(g)
 
                 # ---------------------------------------------------------
-                # 1-2) 순위표 DF 생성
+                # 1-2) 순위표 DF 생성 (전체 집계 recs_all을 그대로 사용)
+                #     - 승률은 '점수 입력된 경기(W+D+L)' 기준으로 계산
                 # ---------------------------------------------------------
-                def build_rank_df(recs_dict):
+                def build_rank_df(recs_dict, allowed_names=None):
                     rows = []
                     for name, r in recs_dict.items():
                         if r["G"] == 0:
                             continue
-                        # 혹시라도 남아있을 게스트 안전 차단
                         if is_guest_name(name, roster):
                             continue
+                        if allowed_names is not None and name not in allowed_names:
+                            continue
 
-                        win_rate = r["W"] / r["G"] * 100
+                        decided = r["W"] + r["D"] + r["L"]  # 점수 입력된 경기수
+                        win_rate = (r["W"] / decided * 100) if decided > 0 else 0.0
+
                         rows.append(
                             {
                                 "이름": name,
@@ -5525,9 +5651,12 @@ with tab5:
                         )
                     if not rows:
                         return None
-                    df = pd.DataFrame(rows).sort_values(
-                        ["점수", "승률"], ascending=False
-                    ).reset_index(drop=True)
+
+                    df = (
+                        pd.DataFrame(rows)
+                        .sort_values(["점수", "승률"], ascending=False)
+                        .reset_index(drop=True)
+                    )
                     df.index = df.index + 1
                     df.index.name = "순위"
                     df["승률"] = df["승률"].map(lambda x: f"{x:.1f}%")
@@ -5543,9 +5672,14 @@ with tab5:
                     else:
                         sty_rank = colorize_df_names(rank_df, roster_by_name, ["이름"])
                         st.dataframe(sty_rank, use_container_width=True)
+
                 else:
-                    rank_df_A = build_rank_df(recs_A)
-                    rank_df_B = build_rank_df(recs_B)
+                    # ✅ 조별보기: 집계는 동일(recs_all), 선수만 A/B로 나누기
+                    names_A = sorted([n for n, g in player_month_group.items() if g == "A"])
+                    names_B = sorted([n for n, g in player_month_group.items() if g == "B"])
+
+                    rank_df_A = build_rank_df(recs_all, allowed_names=set(names_A))
+                    rank_df_B = build_rank_df(recs_all, allowed_names=set(names_B))
 
                     has_any = False
                     if rank_df_A is not None:
@@ -5569,7 +5703,6 @@ with tab5:
                 st.subheader("2. 월 전체 경기 요약 (일별)")
 
                 days_sorted = sorted({d for d, idx, g in month_games})
-
                 for d in days_sorted:
                     st.markdown("<hr style='margin: 0.6rem 0 0.9rem 0;'>", unsafe_allow_html=True)
                     st.markdown(f"**📅 {d}**")
@@ -5607,16 +5740,13 @@ with tab5:
                         else:
                             rows_other.append(row)
 
-                    # A/B 둘 다 있으면 분리 표시
                     if rows_A and rows_B:
                         if rows_A:
                             st.markdown("#### 🟥 A조 경기 요약")
                             render_score_summary_table(rows_A, roster_by_name)
-
                         if rows_B:
                             st.markdown("#### 🟦 B조 경기 요약")
                             render_score_summary_table(rows_B, roster_by_name)
-
                         if rows_other:
                             st.markdown("#### ⚪ 조가 섞인 경기 / 기타")
                             render_score_summary_table(rows_other, roster_by_name)
@@ -5628,9 +5758,9 @@ with tab5:
                 # =========================================================
                 st.subheader("3. 이 달의 BEST (주손/라켓/연령대/성별)")
 
-                # --------------------------------
-                # 3-1. 카테고리별 BEST 함수
-                # --------------------------------
+                # 👉 BEST 계산은 전체 집계 기준 유지
+                recs = recs_all
+
                 def best_by_category(label, key_func, exclude_values=None):
                     if exclude_values is None:
                         exclude_values = set()
@@ -5646,7 +5776,6 @@ with tab5:
 
                         players_all = t1 + t2
 
-                        # 경기수 집계 (게스트 제외)
                         for p in players_all:
                             if is_guest_name(p, roster):
                                 continue
@@ -5656,14 +5785,7 @@ with tab5:
                                 continue
                             stats[grp]["G"] += 1
 
-                        # 승리 그룹 집계
-                        if r == "W":
-                            winners = t1
-                        elif r == "L":
-                            winners = t2
-                        else:
-                            winners = []
-
+                        winners = t1 if r == "W" else (t2 if r == "L" else [])
                         for p in winners:
                             if is_guest_name(p, roster):
                                 continue
@@ -5691,112 +5813,78 @@ with tab5:
 
                     grp_text = ", ".join(best_grps)
                     games = stats[best_grps[0]]["G"]
-
                     return f"{grp_text} (승률 {best_rate*100:.1f}%, 경기수 {games})"
-
 
                 best_hand = best_by_category("주손", lambda m: m.get("hand", "오른손"))
                 best_racket = best_by_category("라켓", lambda m: m.get("racket", "모름"))
                 best_age = best_by_category("연령대", lambda m: m.get("age_group", "비밀"))
                 best_gender = best_by_category("성별", lambda m: m.get("gender", "남"))
-                best_mbti = best_by_category(
-                    "MBTI", lambda m: m.get("mbti", "모름"), exclude_values={"모름"}
-                )
-                # --------------------------------
-                # 3-2. 선수별 BEST 계산
-                # --------------------------------
-                # 🎯 노자비왕 (공동우승 허용)
-                diff_stats = []
+                best_mbti = best_by_category("MBTI", lambda m: m.get("mbti", "모름"), exclude_values={"모름"})
 
+                # 🎯 노자비왕(득-실) — 점수 입력된 경기 기준으로 평균
+                diff_stats = []
                 for name, r in recs.items():
                     if is_guest_name(name, roster):
                         continue
-
-                    G = r["G"]
-                    if G == 0:
+                    decided = r["W"] + r["D"] + r["L"]
+                    if decided == 0:
                         continue
-
-                    avg_for = r["score_for"] / G
-                    avg_against = r["score_against"] / G
+                    avg_for = r["score_for"] / decided
+                    avg_against = r["score_against"] / decided
                     diff = avg_for - avg_against
-
-                    diff_stats.append({
-                        "name": name,
-                        "avg_for": avg_for,
-                        "avg_against": avg_against,
-                        "diff": diff,
-                    })
+                    diff_stats.append({"name": name, "avg_for": avg_for, "avg_against": avg_against, "diff": diff})
 
                 if diff_stats:
                     best_diff_value = max(x["diff"] for x in diff_stats)
                     winners = [x for x in diff_stats if x["diff"] == best_diff_value]
-
                     if len(winners) == 1:
                         w = winners[0]
                         diff_line = (
-                            f"{w['name']} "
-                            f"(평균 득점 {w['avg_for']:.2f}, "
-                            f"평균 실점 {w['avg_against']:.2f}, "
-                            f"격차 {w['diff']:.2f})"
+                            f"{w['name']} (평균 득점 {w['avg_for']:.2f}, "
+                            f"평균 실점 {w['avg_against']:.2f}, 격차 {w['diff']:.2f})"
                         )
                     else:
                         names = ", ".join(w["name"] for w in winners)
-                        diff_line = (
-                            f"{names} "
-                            f"(공동 노자비왕 · 최대 격차 {best_diff_value:.2f})"
-                        )
+                        diff_line = f"{names} (공동 노자비왕 · 최대 격차 {best_diff_value:.2f})"
                 else:
                     diff_line = "데이터 부족"
 
-
                 # 🤝 파트너왕 (공동우승 허용)
                 partner_counts = []
-
                 for name, partner_set in partners_by_player.items():
                     if is_guest_name(name, roster):
                         continue
-                    cnt = len(partner_set)
-                    partner_counts.append((name, cnt))
+                    partner_counts.append((name, len(partner_set)))
 
                 if partner_counts:
                     most_partner_count = max(cnt for _, cnt in partner_counts)
                     winners = [name for name, cnt in partner_counts if cnt == most_partner_count]
-
                     if most_partner_count > 0:
                         names = ", ".join(winners)
-                        if len(winners) == 1:
-                            partner_line = f"{names} (만난 파트너 수 {most_partner_count}명)"
-                        else:
-                            partner_line = f"{names} (공동 파트너왕 · 만난 파트너 수 {most_partner_count}명)"
+                        partner_line = (
+                            f"{names} (공동 파트너왕 · 만난 파트너 수 {most_partner_count}명)"
+                            if len(winners) > 1
+                            else f"{names} (만난 파트너 수 {most_partner_count}명)"
+                        )
                     else:
                         partner_line = "데이터 부족 (복식 경기 없음)"
                 else:
                     partner_line = "데이터 부족 (복식 경기 없음)"
 
-                # 👑 출석왕 – '게임을 한 날짜 수'
-                attendance_dates = defaultdict(set)
-
-                for d, idx, g in month_games:
-                    players_in_day = set(g["t1"] + g["t2"])
-                    for p in players_in_day:
-                        if is_guest_name(p, roster):
-                            continue
-                        attendance_dates[p].add(d)
-
-                attendance_count = {p: len(days) for p, days in attendance_dates.items()}
-
+                # 👑 출석왕 — recs(순위표)와 동일 기준(출석 날짜 set)
+                attendance_count = {p: len(r["days"]) for p, r in recs.items() if r["G"] > 0 and not is_guest_name(p, roster)}
                 if attendance_count:
                     max_days = max(attendance_count.values())
                     att_winners = [p for p, v in attendance_count.items() if v == max_days]
-
-                    if len(att_winners) > 1:
-                        attendance_line = f"{', '.join(att_winners)} (참석 {max_days}일)"
-                    else:
-                        attendance_line = f"{att_winners[0]} (참석 {max_days}일)"
+                    attendance_line = (
+                        f"{', '.join(att_winners)} (참석 {max_days}일)"
+                        if len(att_winners) > 1
+                        else f"{att_winners[0]} (참석 {max_days}일)"
+                    )
                 else:
                     attendance_line = "데이터 부족"
 
-                # 🔥 연승왕 – 이 달 최대 연승
+                # 🔥 연승왕 – 점수 있는 경기만으로 계산
                 streak_now = defaultdict(int)
                 streak_best = defaultdict(int)
 
@@ -5807,86 +5895,69 @@ with tab5:
                     if r is None:
                         continue
 
-                    # 무승부 처리
                     if r == "D":
                         for p in t1 + t2:
                             if is_guest_name(p, roster):
                                 continue
-                            if streak_now[p] > streak_best[p]:
-                                streak_best[p] = streak_now[p]
+                            streak_best[p] = max(streak_best[p], streak_now[p])
                             streak_now[p] = 0
                         continue
 
-                    if r == "W":
-                        winners, losers = t1, t2
-                    else:
-                        winners, losers = t2, t1
+                    winners, losers = (t1, t2) if r == "W" else (t2, t1)
 
                     for p in winners:
                         if is_guest_name(p, roster):
                             continue
                         streak_now[p] += 1
-                        if streak_now[p] > streak_best[p]:
-                            streak_best[p] = streak_now[p]
+                        streak_best[p] = max(streak_best[p], streak_now[p])
 
                     for p in losers:
                         if is_guest_name(p, roster):
                             continue
-                        if streak_now[p] > streak_best[p]:
-                            streak_best[p] = streak_now[p]
+                        streak_best[p] = max(streak_best[p], streak_now[p])
                         streak_now[p] = 0
 
                 for p, cur in streak_now.items():
                     if is_guest_name(p, roster):
                         continue
-                    if cur > streak_best[p]:
-                        streak_best[p] = cur
+                    streak_best[p] = max(streak_best[p], cur)
 
                 streak_line = "데이터 부족"
                 if streak_best:
                     max_streak = max(streak_best.values())
                     if max_streak >= 2:
-                        winners_streak = sorted(
-                            [p for p, v in streak_best.items() if v == max_streak]
-                        )
+                        winners_streak = sorted([p for p, v in streak_best.items() if v == max_streak])
                         streak_line = f"{', '.join(winners_streak)} (최대 {max_streak}연승)"
 
-                # 🥖 제빵왕 – 상대 팀 0점 만든 경기 수
+                # 🥖 제빵왕 – 상대 0점 만든 경기 수 (점수 있는 경기만)
                 baker_counter = Counter()
-
                 for d, idx, g in month_games:
                     t1, t2 = g["t1"], g["t2"]
                     s1, s2 = g["score1"], g["score2"]
-
                     if s1 is None or s2 is None:
                         continue
-
                     if s1 > 0 and s2 == 0:
                         for p in t1:
-                            if is_guest_name(p, roster):
-                                continue
-                            baker_counter[p] += 1
+                            if not is_guest_name(p, roster):
+                                baker_counter[p] += 1
                     elif s2 > 0 and s1 == 0:
                         for p in t2:
-                            if is_guest_name(p, roster):
-                                continue
-                            baker_counter[p] += 1
+                            if not is_guest_name(p, roster):
+                                baker_counter[p] += 1
 
                 if baker_counter:
                     max_cnt = max(baker_counter.values())
                     winners = [p for p, c in baker_counter.items() if c == max_cnt]
-
-                    if max_cnt > 0:
-                        names = ", ".join(winners)
-                        baker_line = f"{names} (상대를 0점으로 이긴 경기 {max_cnt}번)"
-                    else:
-                        baker_line = "데이터 부족"
+                    baker_line = (
+                        f"{', '.join(winners)} (상대를 0점으로 이긴 경기 {max_cnt}번)"
+                        if max_cnt > 0
+                        else "데이터 부족"
+                    )
                 else:
                     baker_line = "데이터 부족"
 
-
                 # --------------------------------
-                # 3-3. 카드 UI 출력
+                # 3-3) 카드 UI 출력
                 # --------------------------------
                 st.markdown(
                     f"""
@@ -5936,4 +6007,3 @@ with tab5:
                     """,
                     unsafe_allow_html=True,
                 )
-
