@@ -22,6 +22,33 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+components.html("""
+<script>
+(function () {
+  const doc = window.parent?.document || document;
+  const id = "hide-streamlit-viewer-badge";
+  let style = doc.getElementById(id);
+  if (!style) {
+    style = doc.createElement("style");
+    style.id = id;
+    doc.head.appendChild(style);
+  }
+
+  style.innerHTML = `
+    /* 하단 Hosted with Streamlit / Created by 배지 제거 */
+    [data-testid="stAppViewerBadge"] { display: none !important; visibility: hidden !important; height: 0 !important; }
+    [class^="viewerBadge_"], [class*=" viewerBadge_"] { display: none !important; visibility: hidden !important; height: 0 !important; }
+
+    /* 혹시 footer로 남는 경우까지 같이 */
+    footer { display: none !important; visibility: hidden !important; height: 0 !important; }
+  `;
+})();
+</script>
+""", height=0)
+
+
+
+
 # ---------------------------------------------------------
 # ✅ Streamlit 상/하단 크레딧/툴바 숨김 + 라이트 고정 CSS (한 방)
 # ---------------------------------------------------------
