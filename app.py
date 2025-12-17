@@ -239,6 +239,33 @@ components.html("""
 
 
 
+st.markdown("""
+<style>
+/* ✅ 대진표 한줄 고정 + 가로 스크롤 */
+.msa-game-row{
+  display:flex;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:10px;
+  margin:10px 0;
+}
+.msa-game-meta{
+  flex:0 0 auto;
+  white-space:nowrap;
+  font-weight:600;
+}
+.msa-game-line{
+  flex:1 1 auto;
+  white-space:nowrap;          /* 줄바꿈 금지 */
+  overflow-x:auto;             /* 넘치면 가로 스크롤 */
+  -webkit-overflow-scrolling:touch;
+  padding-bottom:2px;
+}
+.msa-game-line b{ white-space:nowrap; }
+</style>
+""", unsafe_allow_html=True)
+
+
 
 # ---------------------------------------------------------
 # 기본 상수
@@ -3832,6 +3859,22 @@ with tab2:
     if schedule:
         view_mode_for_schedule = st.session_state.get("order_view_mode", "전체")
 
+        def render_one_game_line(show_idx, court, gtype_each, t1, t2):
+            t1_html = "".join(render_name_badge(n, roster_by_name) for n in t1)
+            t2_html = "".join(render_name_badge(n, roster_by_name) for n in t2)
+
+            st.markdown(
+                f"""
+                <div class="msa-game-row">
+                  <div class="msa-game-meta">게임 {show_idx} (코트 {court}) [{gtype_each}] :</div>
+                  <div class="msa-game-line">
+                    {t1_html} <b>vs</b> {t2_html}
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
         if view_mode_for_schedule == "조별 분리 (A/B조)":
             games_A, games_B, games_other = [], [], []
 
@@ -3852,13 +3895,7 @@ with tab2:
                     return
                 st.markdown(f"### {title}")
                 for local_idx, (orig_idx, gtype_each, t1, t2, court) in enumerate(games, start=1):
-                    t1_html = "".join(render_name_badge(n, roster_by_name) for n in t1)
-                    t2_html = "".join(render_name_badge(n, roster_by_name) for n in t2)
-                    st.markdown(
-                        f"게임 {local_idx} (코트 {court}) [{gtype_each}] : "
-                        f"{t1_html} <b>vs</b> {t2_html}",
-                        unsafe_allow_html=True,
-                    )
+                    render_one_game_line(local_idx, court, gtype_each, t1, t2)
 
             render_game_list("A조 대진표", games_A)
             render_game_list("B조 대진표", games_B)
@@ -3867,13 +3904,7 @@ with tab2:
 
         else:
             for idx, (gtype_each, t1, t2, court) in enumerate(schedule, start=1):
-                t1_html = "".join(render_name_badge(n, roster_by_name) for n in t1)
-                t2_html = "".join(render_name_badge(n, roster_by_name) for n in t2)
-                st.markdown(
-                    f"게임 {idx} (코트 {court}) [{gtype_each}] : "
-                    f"{t1_html} <b>vs</b> {t2_html}",
-                    unsafe_allow_html=True,
-                )
+                render_one_game_line(idx, court, gtype_each, t1, t2)
 
     # ---------------------------------------------------------
     # 5. 대진표 저장
