@@ -22,7 +22,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-
+# ✅ 모바일: selectbox는 키보드 완전 차단 / date_input은 키보드만 막고 달력은 열리게
 components.html(
     """
 <script>
@@ -35,54 +35,84 @@ components.html(
            /Android|iPhone|iPad|iPod/i.test(win.navigator.userAgent);
   }
 
-  // Streamlit(BaseWeb)에서 키보드 올라오는 대표 input들
-  const SELECTORS = [
-    'div[data-baseweb="select"] input',        // selectbox/multiselect 내부 input
-    'div[data-baseweb="datepicker"] input',    // date_input 내부 input
+  const SEL_SELECT = [
+    'div[data-baseweb="select"] input',
     '[data-testid="stSelectbox"] input',
     '[data-testid="stMultiSelect"] input',
-    '[data-testid="stDateInput"] input',
     'div[role="combobox"] input'
   ].join(',');
 
-  function harden(inp){
-    if(!inp) return;
+  const SEL_DATE = [
+    'div[data-baseweb="datepicker"] input',
+    '[data-testid="stDateInput"] input'
+  ].join(',');
 
+  function common(inp){
     inp.setAttribute("readonly", "true");
     inp.setAttribute("inputmode", "none");
     inp.setAttribute("autocomplete", "off");
     inp.setAttribute("autocorrect", "off");
     inp.setAttribute("autocapitalize", "off");
     inp.setAttribute("spellcheck", "false");
-
-    // 포커스 잡히면 즉시 해제
-    inp.addEventListener("focus", (e) => {
-      e.target.blur();
-    }, { passive: true });
-
     inp.style.caretColor = "transparent";
+  }
 
-    // ✅ selectbox/multiselect는 input 터치 자체를 막고(부모 클릭으로 열리게) 키보드 완전 차단
-    // (date_input은 pointer-events 막으면 달력 안 열릴 수 있어서 제외)
-    if (inp.closest('div[data-baseweb="select"]')) {
-      inp.style.pointerEvents = "none";
-      inp.setAttribute("tabindex", "-1");
+  // ✅ Selectbox: input 터치 자체를 막아서 키보드가 절대 안 뜨게
+  function hardenSelect(inp){
+    common(inp);
+    inp.style.pointerEvents = "none";
+    inp.setAttribute("tabindex", "-1");
+  }
+
+  // ✅ DateInput: 키보드 포커스만 막고, 대신 달력 열기 액션을 트리거
+  function hardenDate(inp){
+    common(inp);
+    inp.setAttribute("tabindex", "-1");
+
+    // 이미 달린 리스너 중복 방지
+    if (inp.__msa_patched_date) return;
+    inp.__msa_patched_date = true;
+
+    function openCalendar(){
+      const root = inp.closest('div[data-baseweb="datepicker"]') || inp.closest('[data-testid="stDateInput"]');
+      if(!root) return;
+
+      // 달력 아이콘 버튼이 있으면 그걸 클릭 (가장 안정적)
+      const btn = root.querySelector('button');
+      if(btn) btn.click();
+      else root.click();
     }
+
+    // 포커스가 생기기 전에 막기 (키보드 방지)
+    inp.addEventListener("pointerdown", (e) => {
+      if(!isMobile()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openCalendar();
+    }, true);
+
+    // 일부 WebView는 touchstart/mousedown이 더 잘 먹음
+    inp.addEventListener("touchstart", (e) => {
+      if(!isMobile()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openCalendar();
+    }, {passive:false, capture:true});
+
+    inp.addEventListener("mousedown", (e) => {
+      if(!isMobile()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openCalendar();
+    }, true);
   }
 
   function patch(){
     if(!isMobile()) return;
-    doc.querySelectorAll(SELECTORS).forEach(harden);
-  }
 
-  // 캡처 단계에서 포커스 들어오면 바로 blur
-  doc.addEventListener("focusin", (e) => {
-    if(!isMobile()) return;
-    const t = e.target;
-    if (t && t.matches && t.matches(SELECTORS)) {
-      t.blur();
-    }
-  }, true);
+    doc.querySelectorAll(SEL_SELECT).forEach(hardenSelect);
+    doc.querySelectorAll(SEL_DATE).forEach(hardenDate);
+  }
 
   patch();
   new MutationObserver(patch).observe(doc.body, { childList: true, subtree: true });
@@ -91,7 +121,6 @@ components.html(
 """,
     height=0,
 )
-
 
 
 components.html("""
