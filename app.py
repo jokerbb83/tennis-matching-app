@@ -22,6 +22,43 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+st.markdown("""
+<style>
+/* ✅ Streamlit Cloud 하단 배지(있을 때) */
+div[data-testid="stAppViewerBadge"] {display:none !important; visibility:hidden !important; height:0 !important;}
+div[data-testid="stAppViewerBadge"] * {display:none !important;}
+</style>
+""", unsafe_allow_html=True)
+
+components.html("""
+<script>
+(function () {
+  const doc = window.parent.document;
+
+  function hideBadge(){
+    // testid로 먼저 제거
+    doc.querySelectorAll('div[data-testid="stAppViewerBadge"]').forEach(el=>{
+      el.style.display="none";
+      el.style.visibility="hidden";
+      el.style.height="0";
+    });
+
+    // 텍스트 기반으로도 한 번 더(버전/구조 바뀔 때 대비)
+    doc.querySelectorAll("div,span,a").forEach(el=>{
+      const t = (el.innerText || "").trim();
+      if (t === "Hosted with Streamlit" || t === "Created by") {
+        el.style.display = "none";
+      }
+    });
+  }
+
+  hideBadge();
+  new MutationObserver(hideBadge).observe(doc.body, {childList:true, subtree:true});
+})();
+</script>
+""", height=0)
+
+
 components.html("""
 <script>
 (function () {
