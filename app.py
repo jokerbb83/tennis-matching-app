@@ -21,6 +21,25 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+st.markdown("""
+<style>
+/* Streamlit 기본 메뉴/헤더/푸터 숨김 */
+#MainMenu {visibility: hidden;}
+header {visibility: hidden;}
+footer {visibility: hidden;}
+
+/* 상단 툴바/오른쪽 아이콘 영역 숨김(버전에 따라 testid가 달라서 같이 잡아줌) */
+div[data-testid="stToolbar"] {visibility: hidden !important; height: 0 !important;}
+div[data-testid="stDecoration"] {visibility: hidden !important;}
+div[data-testid="stStatusWidget"] {visibility: hidden !important;}
+
+/* 배포 버튼(있으면) 숨김 */
+.stDeployButton {display: none !important;}
+</style>
+""", unsafe_allow_html=True)
+
+
+
 import streamlit as st
 import streamlit.components.v1 as components
 
