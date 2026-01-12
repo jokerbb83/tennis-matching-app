@@ -303,7 +303,7 @@ AGE_OPTIONS = ["비밀", "20대", "30대", "40대", "50대", "60대", "70대"]
 RACKET_OPTIONS = ["모름", "기타", "윌슨", "요넥스", "헤드", "바볼랏", "던롭", "뵐클", "테크니파이버", "프린스"]
 GENDER_OPTIONS = ["남", "여"]
 HAND_OPTIONS = ["오른손", "왼손"]
-GROUP_OPTIONS = ["미배정(게스트)", "A조", "B조"]
+GROUP_OPTIONS = ["미배정", "A조", "B조"]
 NTRP_OPTIONS = ["모름"] + [f"{x/10:.1f}" for x in range(10, 71)]  # 1.0~7.0 (0.1 step)
 COURT_TYPES = ["인조잔디", "하드", "클레이"]
 SIDE_OPTIONS = ["포(듀스)", "백(애드)"]
@@ -3839,7 +3839,7 @@ with tab2:
         gc1, gc2, gc3, gc4, gc5 = st.columns([2.5, 1.0, 1.2, 1.1, 1.2])
 
         with gc1:
-            guest_name = st.text_input("게스트 이름", key="guest_name_input", placeholder="예: 홍길동")
+            guest_name = st.text_input("게스트 이름", key="guest_name_input", placeholder="예: 차은우")
         with gc2:
             guest_gender = st.selectbox("성별", ["남", "여"], index=0, key="guest_gender_input")
         with gc3:
@@ -6625,4 +6625,3 @@ with tab5:
                     """,
                     unsafe_allow_html=True,
                 )
-
