@@ -3881,6 +3881,9 @@ with tab2:
             add_guest_clicked = st.button("게스트 추가", use_container_width=True, key="btn_add_guest_once")
 
         if add_guest_clicked:
+            # ✅ 현재 선택된 참가자(멀티셀렉트) 보호
+            _sel_backup = list(st.session_state.get("ms_today_players", []))
+
             name_clean = (guest_name or "").strip()
             if not name_clean:
                 st.warning("게스트 이름을 입력해 주세요.")
@@ -3893,7 +3896,15 @@ with tab2:
                     )
                     st.session_state.guest_list = guest_list
                     st.session_state["guest_add_msg"] = f"게스트 '{name_clean}' 추가되었습니다."
-                    safe_rerun()
+
+                    # ✅ 입력칸 초기화(선택값은 유지)
+                    st.session_state["guest_name_input"] = ""
+
+            # ✅ 멀티셀렉트 선택값 복원 (초기화 방지)
+            st.session_state["ms_today_players"] = _sel_backup
+
+            # ❌ 여기서 safe_rerun() 하지 마 (버튼 클릭 자체가 rerun임)
+
 
         if st.session_state.get("guest_add_msg"):
             st.success(st.session_state["guest_add_msg"])
