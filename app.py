@@ -12,13 +12,60 @@ import streamlit as st
 import streamlit.components.v1 as components
 import plotly.express as px
 
+import time
+import ssl
+import socket
+from googleapiclient.errors import HttpError
+
 import io
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 
+### START: DRIVE_JSON_IO_BLOCK (교체 시작)
+
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
+
+# ---------------------------------------------------------
+# ✅ Google Drive JSON I/O (재시도/일시적 네트워크 오류 대비)
+# ---------------------------------------------------------
+RETRY_MAX = 5
+RETRY_BASE_SLEEP = 0.8
+
+def _is_transient_drive_error(e: Exception) -> bool:
+    # Google API 일시 오류(429/5xx 등)
+    if isinstance(e, HttpError):
+        status = getattr(getattr(e, "resp", None), "status", None)
+        if status in (408, 429, 500, 502, 503, 504):
+            return True
+
+    # SSL/네트워크 타임아웃 계열
+    if isinstance(e, (ssl.SSLError, socket.timeout, TimeoutError, ConnectionError)):
+        return True
+
+    msg = str(e).lower()
+    if any(k in msg for k in ["ssl", "timeout", "timed out", "connection reset", "temporarily unavailable"]):
+        return True
+
+    return False
+
+def _sleep_backoff(attempt: int):
+    # 지수 백오프 + 약간의 지터
+    time.sleep((2 ** attempt) * RETRY_BASE_SLEEP + (random.random() * 0.2))
+
+def _with_retry(fn):
+    last_err = None
+    for attempt in range(RETRY_MAX):
+        try:
+            return fn()
+        except Exception as e:
+            last_err = e
+            # 마지막 시도거나, 일시 오류가 아니면 즉시 종료
+            if attempt == RETRY_MAX - 1 or (not _is_transient_drive_error(e)):
+                raise
+            _sleep_backoff(attempt)
+    raise last_err
 
 @st.cache_resource
 def get_drive_service():
@@ -27,38 +74,63 @@ def get_drive_service():
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 def drive_download_text(file_id: str) -> str:
-    service = get_drive_service()
-    req = service.files().get_media(fileId=file_id, supportsAllDrives=True)
-    fh = io.BytesIO()
-    downloader = MediaIoBaseDownload(fh, req)
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-    return fh.getvalue().decode("utf-8")
+    def _do():
+        service = get_drive_service()
+        req = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, req)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return fh.getvalue().decode("utf-8", errors="replace")
+    return _with_retry(_do)
 
 def drive_upload_text(file_id: str, text: str):
-    service = get_drive_service()
-    media = MediaIoBaseUpload(
-        io.BytesIO(text.encode("utf-8")),
-        mimetype="application/json",
-        resumable=False,
-    )
-    service.files().update(
-        fileId=file_id,
-        media_body=media,
-        supportsAllDrives=True,
-    ).execute()
+    payload = text.encode("utf-8")
+
+    def _do():
+        service = get_drive_service()
+        media = MediaIoBaseUpload(
+            io.BytesIO(payload),
+            mimetype="application/json",
+            resumable=False,
+        )
+        service.files().update(
+            fileId=file_id,
+            media_body=media,
+            supportsAllDrives=True,
+        ).execute()
+
+    return _with_retry(_do)
 
 def load_json_drive(file_id: str, default):
     try:
         raw = drive_download_text(file_id)
-        return json.loads(raw) if raw.strip() else default
+        raw = raw.strip()
+        if not raw:
+            return default
+        return json.loads(raw)
     except Exception:
         return default
 
 def save_json_drive(file_id: str, data):
     text = json.dumps(data, ensure_ascii=False, indent=2)
     drive_upload_text(file_id, text)
+
+PLAYERS_FILE_ID = st.secrets["drive"]["players_file_id"]
+SESSIONS_FILE_ID = st.secrets["drive"]["sessions_file_id"]
+
+def load_players():
+    return load_json_drive(PLAYERS_FILE_ID, [])
+
+def save_players(players):
+    save_json_drive(PLAYERS_FILE_ID, players)
+
+def load_sessions():
+    return load_json_drive(SESSIONS_FILE_ID, {})
+
+def save_sessions(sessions):
+    save_json_drive(SESSIONS_FILE_ID, sessions)
 
 
 # ---------------------------------------------------------
@@ -688,41 +760,6 @@ def build_daily_report(sel_date, day_data):
         lines.append(f"상대를 0점으로 이긴 셧아웃 경기 최다: {names_str} (총 {max_b}번)")
 
     return lines
-
-
-
-# ---------------------------------------------------------
-# 파일 입출력
-# ---------------------------------------------------------
-def load_json(path, default):
-    if not os.path.exists(path):
-        return default
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return default
-
-
-def save_json(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-
-PLAYERS_FILE_ID = st.secrets["drive"]["players_file_id"]
-SESSIONS_FILE_ID = st.secrets["drive"]["sessions_file_id"]
-
-def load_players():
-    return load_json_drive(PLAYERS_FILE_ID, [])
-
-def save_players(players):
-    save_json_drive(PLAYERS_FILE_ID, players)
-
-def load_sessions():
-    return load_json_drive(SESSIONS_FILE_ID, {})
-
-def save_sessions(sessions):
-    save_json_drive(SESSIONS_FILE_ID, sessions)
 
 
 
