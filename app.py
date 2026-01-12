@@ -3854,6 +3854,37 @@ with tab2:
 
     guest_enabled = bool(st.session_state.guest_mode or st.session_state.special_match)
 
+    # =========================================================
+    # ✅ 게스트 입력칸 초기화: 위젯 렌더 "전에만" 적용(pending 방식)
+    # =========================================================
+    if "_guest_clear_pending" not in st.session_state:
+        st.session_state["_guest_clear_pending"] = False
+
+    def _apply_guest_clear_pending():
+        # 기본값 주입 (위젯 렌더 전이므로 안전)
+        default_ntrp = NTRP_OPTIONS[0] if isinstance(NTRP_OPTIONS, (list, tuple)) and NTRP_OPTIONS else "모름"
+
+        if "guest_name_input" not in st.session_state:
+            st.session_state["guest_name_input"] = ""
+        if "guest_gender_input" not in st.session_state:
+            st.session_state["guest_gender_input"] = "남"
+        if "guest_group_input" not in st.session_state:
+            st.session_state["guest_group_input"] = "미배정"
+        if "guest_ntrp_input" not in st.session_state:
+            st.session_state["guest_ntrp_input"] = default_ntrp
+
+        # pending이 켜져있으면, 이 타이밍(위젯 렌더 전)에만 초기화
+        if st.session_state.get("_guest_clear_pending", False):
+            st.session_state["guest_name_input"] = ""
+            st.session_state["guest_gender_input"] = "남"
+            st.session_state["guest_group_input"] = "미배정"
+            st.session_state["guest_ntrp_input"] = default_ntrp
+            st.session_state["_guest_clear_pending"] = False
+
+
+
+
+
     if not guest_enabled and st.session_state._injected_guest_names:
         for nm in list(st.session_state._injected_guest_names):
             if roster_by_name.get(nm, {}).get("is_guest", False):
@@ -3861,6 +3892,7 @@ with tab2:
         st.session_state._injected_guest_names = []
 
     if guest_enabled:
+	_apply_guest_clear_pending()
         st.markdown(
             """
             <div style="
@@ -3910,13 +3942,16 @@ with tab2:
                     st.session_state.guest_list = guest_list
                     st.session_state["guest_add_msg"] = f"게스트 '{name_clean}' 추가되었습니다."
 
-                    # ✅ 입력칸 초기화(선택값은 유지)
-                    st.session_state["guest_name_input"] = ""
+                    # ✅ 입력칸 초기화는 다음 rerun에서 위젯 렌더 전에 처리
+                    st.session_state["_guest_clear_pending"] = True
 
             # ✅ 멀티셀렉트 선택값 복원 (초기화 방지)
             st.session_state["ms_today_players"] = _sel_backup
 
-            # ❌ 여기서 safe_rerun() 하지 마 (버튼 클릭 자체가 rerun임)
+            # ✅ 여기서는 rerun 한 번 더 돌려서 입력칸 초기화 반영
+            if st.session_state.get("_guest_clear_pending", False):
+                safe_rerun()
+
 
 
         if st.session_state.get("guest_add_msg"):
@@ -5525,7 +5560,7 @@ with tab3:
                     if summary_view_mode == "대진별 보기":
 
 
-                                                # =========================================================
+                        # =========================================================
                         # ✅ [대진표 캡처 + 텍스트 복사용] 준비 (24칸 들여쓰기)
                         #   - 대진별 보기에서만 동작
                         # =========================================================
@@ -5606,6 +5641,8 @@ with tab3:
                             render_score_summary_table(all_games_sum, roster_by_name)
 
                         st.markdown(f'<div id="{capture_id}__end"></div>', unsafe_allow_html=True)
+
+
 
                         # =========================================================
                         # ✅ [표 아래] JPEG 저장 + 텍스트 클립보드 복사 버튼
