@@ -1,377 +1,25 @@
 # -*- coding: utf-8 -*-
 import json
 import os
-import io
-import time
-import ssl
-import socket
 import random
 import math
 from datetime import date
-from itertools import combinations
 from collections import defaultdict, Counter
 
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
-import plotly.express as px
-
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
-
 
 # =========================================================
-# ✅ Streamlit 초기화 (무조건 최상단!)
+# 0) 기본 설정 / 파일 경로
 # =========================================================
-st.set_page_config(
-    page_title="마리아 상암포바 도우미 MSA (Beta)",
-    layout="centered",
-    initial_sidebar_state="collapsed",
-)
+APP_TITLE = "마리아 상암포바 도우미 MSA (Beta)"
+ROSTER_FILE = "players.json"
+SESSIONS_FILE = "sessions.json"
 
-
-# =========================================================
-# ✅ Google Drive JSON I/O (재시도/일시적 네트워크 오류 대비)
-# =========================================================
-DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
-
-RETRY_MAX = 5
-RETRY_BASE_SLEEP = 0.8
-
-
-def _is_transient_drive_error(e: Exception) -> bool:
-    # Google API 일시 오류(429/5xx 등)
-    if isinstance(e, HttpError):
-        status = getattr(getattr(e, "resp", None), "status", None)
-        if status in (408, 429, 500, 502, 503, 504):
-            return True
-
-    # SSL/네트워크 타임아웃 계열
-    if isinstance(e, (ssl.SSLError, socket.timeout, TimeoutError, ConnectionError)):
-        return True
-
-    msg = str(e).lower()
-    if any(k in msg for k in ["ssl", "timeout", "timed out", "connection reset", "temporarily unavailable"]):
-        return True
-
-    return False
-
-
-def _sleep_backoff(attempt: int):
-    # 지수 백오프 + 약간의 지터
-    time.sleep((2 ** attempt) * RETRY_BASE_SLEEP + (random.random() * 0.2))
-
-
-def _with_retry(fn):
-    last_err = None
-    for attempt in range(RETRY_MAX):
-        try:
-            return fn()
-        except Exception as e:
-            last_err = e
-            if attempt == RETRY_MAX - 1 or (not _is_transient_drive_error(e)):
-                raise
-            _sleep_backoff(attempt)
-    raise last_err
-
-
-@st.cache_resource
-def get_drive_service():
-    info = dict(st.secrets["google_service_account"])
-    creds = service_account.Credentials.from_service_account_info(info, scopes=DRIVE_SCOPES)
-    return build("drive", "v3", credentials=creds, cache_discovery=False)
-
-
-def drive_download_text(file_id: str) -> str:
-    def _do():
-        service = get_drive_service()
-        req = service.files().get_media(fileId=file_id, supportsAllDrives=True)
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, req)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-        return fh.getvalue().decode("utf-8", errors="replace")
-
-    return _with_retry(_do)
-
-
-def drive_upload_text(file_id: str, text: str):
-    payload = text.encode("utf-8")
-
-    def _do():
-        service = get_drive_service()
-        media = MediaIoBaseUpload(
-            io.BytesIO(payload),
-            mimetype="application/json",
-            resumable=False,
-        )
-        service.files().update(
-            fileId=file_id,
-            media_body=media,
-            supportsAllDrives=True,
-        ).execute()
-
-    return _with_retry(_do)
-
-
-def load_json_drive(file_id: str, default):
-    try:
-        raw = drive_download_text(file_id).strip()
-        if not raw:
-            return default
-        return json.loads(raw)
-    except Exception:
-        return default
-
-
-def save_json_drive(file_id: str, data):
-    text = json.dumps(data, ensure_ascii=False, indent=2)
-    drive_upload_text(file_id, text)
-
-
-# ✅ set_page_config 이후에만 secrets 접근
-PLAYERS_FILE_ID = st.secrets["drive"]["players_file_id"]
-SESSIONS_FILE_ID = st.secrets["drive"]["sessions_file_id"]
-
-
-def load_players():
-    return load_json_drive(PLAYERS_FILE_ID, [])
-
-
-def save_players(players):
-    save_json_drive(PLAYERS_FILE_ID, players)
-
-
-def load_sessions():
-    return load_json_drive(SESSIONS_FILE_ID, {})
-
-
-def save_sessions(sessions):
-    save_json_drive(SESSIONS_FILE_ID, sessions)
-
-
-# =========================================================
-# ✅ (유지) 모바일 키보드 차단 + 뱃지 숨김 + 라이트 고정
-# =========================================================
-components.html(
-    """
-<script>
-(function () {
-  const doc = window.parent.document;
-  const win = window.parent;
-
-  function isMobile(){
-    return win.matchMedia("(max-width: 900px)").matches ||
-           /Android|iPhone|iPad|iPod/i.test(win.navigator.userAgent);
-  }
-
-  const SEL_SELECT = [
-    'div[data-baseweb="select"] input',
-    '[data-testid="stSelectbox"] input',
-    '[data-testid="stMultiSelect"] input',
-    'div[role="combobox"] input'
-  ].join(',');
-
-  const SEL_DATE = [
-    'div[data-baseweb="datepicker"] input',
-    '[data-testid="stDateInput"] input'
-  ].join(',');
-
-  function common(inp){
-    inp.setAttribute("readonly", "true");
-    inp.setAttribute("inputmode", "none");
-    inp.setAttribute("autocomplete", "off");
-    inp.setAttribute("autocorrect", "off");
-    inp.setAttribute("autocapitalize", "off");
-    inp.setAttribute("spellcheck", "false");
-    inp.style.caretColor = "transparent";
-  }
-
-  function hardenSelect(inp){
-    common(inp);
-    inp.style.pointerEvents = "none";
-    inp.setAttribute("tabindex", "-1");
-  }
-
-  function softenDate(inp){
-    common(inp);
-    inp.style.pointerEvents = "auto";
-    inp.removeAttribute("tabindex");
-  }
-
-  function patch(){
-    if(!isMobile()) return;
-    doc.querySelectorAll(SEL_SELECT).forEach(hardenSelect);
-    doc.querySelectorAll(SEL_DATE).forEach(softenDate);
-  }
-
-  patch();
-  new MutationObserver(patch).observe(doc.body, { childList: true, subtree: true });
-})();
-</script>
-""",
-    height=0,
-)
-
-components.html(
-    """
-<script>
-(function () {
-  const doc = window.parent?.document || document;
-  const id = "hide-streamlit-viewer-badge";
-  let style = doc.getElementById(id);
-  if (!style) {
-    style = doc.createElement("style");
-    style.id = id;
-    doc.head.appendChild(style);
-  }
-
-  style.innerHTML = `
-    [data-testid="stAppViewerBadge"] { display: none !important; visibility: hidden !important; height: 0 !important; }
-    [class^="viewerBadge_"], [class*=" viewerBadge_"] { display: none !important; visibility: hidden !important; height: 0 !important; }
-    footer { display: none !important; visibility: hidden !important; height: 0 !important; }
-  `;
-})();
-</script>
-""",
-    height=0,
-)
-
-st.markdown(
-    """
-<style>
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
-
-div[data-testid="stToolbar"] {visibility: hidden !important; height: 0 !important;}
-div[data-testid="stDecoration"] {visibility: hidden !important;}
-div[data-testid="stStatusWidget"] {visibility: hidden !important;}
-.stDeployButton {display: none !important;}
-
-:root { color-scheme: light !important; }
-html, body, [data-testid="stAppViewContainer"] {
-  background: #ffffff !important;
-  color: #111827 !important;
-}
-
-input, textarea, select {
-  background-color: #ffffff !important;
-  color: #111827 !important;
-}
-[data-testid="stSelectbox"] > div > div,
-[data-testid="stMultiSelect"] > div > div,
-[data-testid="stNumberInput"] > div > div:first-child,
-[data-testid="stTextInput"] > div > div,
-div[role="combobox"],
-div[role="spinbutton"],
-[data-baseweb="select"],
-[data-baseweb="input"] {
-  background-color: #ffffff !important;
-  color: #111827 !important;
-  border: 1px solid #e5e7eb !important;
-}
-
-div[data-baseweb="popover"],
-div[data-baseweb="menu"],
-ul[role="listbox"], div[role="listbox"]{
-  background: #ffffff !important;
-  color: #111827 !important;
-  border: 1px solid rgba(0,0,0,0.08) !important;
-}
-div[data-baseweb="popover"] *,
-div[data-baseweb="menu"] *,
-ul[role="listbox"] *,
-div[role="listbox"] * {
-  color: #111827 !important;
-}
-
-div[data-baseweb="menu"] div[role="option"][aria-selected="true"],
-ul[role="listbox"] li[aria-selected="true"]{
-  background: #f3f4f6 !important;
-}
-div[data-baseweb="menu"] div[role="option"]:hover,
-ul[role="listbox"] li:hover{
-  background: #e5e7eb !important;
-}
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-components.html(
-    """
-<script>
-(function () {
-  const doc = window.parent?.document || document;
-
-  function upsertMeta(name, content){
-    let m = doc.querySelector(`meta[name="${name}"]`);
-    if(!m){ m = doc.createElement("meta"); m.setAttribute("name", name); doc.head.appendChild(m); }
-    m.setAttribute("content", content);
-  }
-  upsertMeta("color-scheme", "light");
-  upsertMeta("supported-color-schemes", "light");
-})();
-</script>
-""",
-    height=0,
-)
-
-st.markdown(
-    """
-<style>
-.msa-game-row{
-  display:flex;
-  flex-wrap:nowrap;
-  align-items:center;
-  gap:10px;
-  margin:10px 0;
-}
-.msa-game-meta{
-  flex:0 0 auto;
-  white-space:nowrap;
-  font-weight:600;
-}
-.msa-game-line{
-  flex:1 1 auto;
-  white-space:nowrap;
-  overflow-x:auto;
-  -webkit-overflow-scrolling:touch;
-  padding-bottom:2px;
-}
-.msa-game-line b{ white-space:nowrap; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-
-# =========================================================
-# 기본 상수
-# =========================================================
-AGE_OPTIONS = ["비밀", "20대", "30대", "40대", "50대", "60대", "70대"]
-RACKET_OPTIONS = ["모름", "기타", "윌슨", "요넥스", "헤드", "바볼랏", "던롭", "뵐클", "테크니파이버", "프린스"]
-GENDER_OPTIONS = ["남", "여"]
-HAND_OPTIONS = ["오른손", "왼손"]
-
-# ✅ 기존 UI 라벨 유지(미배정(게스트)) + 내부 저장은 미배정으로 정리
-GROUP_OPTIONS = ["미배정(게스트)", "A조", "B조"]
-
-NTRP_OPTIONS = ["모름"] + [f"{x/10:.1f}" for x in range(10, 71)]
 COURT_TYPES = ["인조잔디", "하드", "클레이"]
-SIDE_OPTIONS = ["포(듀스)", "백(애드)"]
-SCORE_OPTIONS = list(range(0, 7))
-MBTI_OPTIONS = [
-    "모름",
-    "ISTJ", "ISFJ", "INFJ",
-    "ISTP", "ISFP", "INFP", "INTP",
-    "ESTP", "ESFP", "ENFP", "ENTP",
-    "ESTJ", "ESFJ", "ENFJ", "ENTJ",
-]
+NTRP_OPTIONS = ["모름", "2.0", "2.5", "3.0", "3.5", "4.0", "4.5", "5.0"]
+SCORE_OPTIONS = list(range(0, 8))  # 0~7 (원하면 수정)
 
 WIN_POINT = 3
 DRAW_POINT = 1
@@ -379,962 +27,872 @@ LOSE_POINT = 0
 
 
 # =========================================================
-# 한울 AA 패턴 (5~16명 전용, 4게임 보장)
+# 1) JSON 저장/불러오기
 # =========================================================
-HANUL_AA_PATTERNS = {
-    5: ["12:34", "13:25", "14:35", "15:24", "23:45"],
-    6: ["12:34", "15:46", "23:56", "14:25", "24:36", "16:35"],
-    7: ["12:34", "56:17", "35:24", "14:67", "23:57", "16:25", "46:37"],
-    8: ["12:34", "56:78", "13:57", "24:68", "37:48", "15:26", "16:38", "25:47"],
-    9: ["12:34", "56:78", "19:57", "23:68", "49:38", "15:26", "17:89", "36:45", "24:79"],
-    10: ["12:34", "56:78", "23:6A", "19:58", "3A:45", "27:89", "4A:68", "13:79", "46:59", "17:2A"],
-    11: ["12:34", "56:78", "1B:9A", "23:68", "4A:57", "26:9B", "13:5B", "49:8A", "17:28", "5A:6B", "39:47"],
-    12: ["12:34", "56:78", "9A:BC", "15:26", "39:4A", "7B:8C", "13:59", "24:6A", "7C:14", "8B:23", "67:9B", "58:AC"],
-    13: ["12:34", "56:78", "9A:BC", "1D:25", "37:4A", "68:9B", "CD:13", "26:5A", "47:8B", "9C:2D", "15:AB", "3C:67", "48:9D"],
-    14: ["12:34", "56:78", "9A:BC", "DE:13", "24:57", "68:9B", "26:CD", "79:AE", "14:8B", "5E:6A", "3C:7B", "2D:89", "3E:45", "AC:1D"],
-    15: ["12:34", "56:78", "9A:BC", "DE:1F", "23:57", "46:AB", "8D:9E", "4F:5C", "13:6B", "27:8A", "9C:5E", "36:DF", "1B:8C", "47:EF", "2A:9D"],
-    16: ["12:34", "56:78", "9A:BC", "DE:FG", "13:57", "24:68", "9B:DF", "AC:EG", "15:9D", "37:BF", "26:AE", "48:CG", "19:2A", "5D:6E", "3B:4C", "7F:8G"],
-}
-
-
-def char_to_index(ch: str) -> int:
-    if ch.isdigit():
-        return int(ch) - 1
-    return 9 + (ord(ch) - ord("A"))
-
-
-def parse_pattern(pattern: str, players: list[str]):
-    t1_raw, t2_raw = pattern.split(":")
-    t1, t2 = [], []
-    for c in t1_raw:
-        idx = char_to_index(c)
-        if 0 <= idx < len(players):
-            t1.append(players[idx])
-    for c in t2_raw:
-        idx = char_to_index(c)
-        if 0 <= idx < len(players):
-            t2.append(players[idx])
-    return t1, t2
-
-
-def build_hanul_aa_schedule(players, court_count):
-    n = len(players)
-    if n not in HANUL_AA_PATTERNS:
-        return []
-
-    patterns = HANUL_AA_PATTERNS[n]
-    schedule = []
-
-    for i, p in enumerate(patterns):
-        t1, t2 = parse_pattern(p, players)
-        if len(t1) != 2 or len(t2) != 2:
-            continue
-        court = (i % int(court_count)) + 1
-        schedule.append(("복식", t1, t2, court))
-
-    return schedule
-
-
-# =========================================================
-# 점수/리포트 유틸
-# =========================================================
-def calc_result(score1, score2):
-    if score1 is None or score2 is None:
-        return None
-    if score1 > score2:
-        return "W"
-    if score1 < score2:
-        return "L"
-    return "D"
-
-
-def detect_score_warnings(day_data):
-    schedule = day_data.get("schedule", [])
-    results = day_data.get("results", {})
-    warnings = []
-
-    for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
-        res = results.get(str(idx)) or results.get(idx) or {}
-        s1 = res.get("t1")
-        s2 = res.get("t2")
-
-        if s1 is None or s2 is None:
-            warnings.append(f"{idx}번 경기: 점수가 비어 있어요.")
-            continue
-
-        if s1 == s2 and s1 != 5:
-            warnings.append(f"{idx}번 경기: {s1}:{s2} → 5:5가 아닌 무승부 점수예요. 다시 한 번 확인해 주세요.")
-
-    return warnings
-
-
-def build_daily_report(sel_date, day_data):
-    schedule = day_data.get("schedule", [])
-    results = day_data.get("results", {})
-    if not schedule:
-        return []
-
-    recs = defaultdict(lambda: {"G": 0, "W": 0, "D": 0, "L": 0, "points": 0, "score_for": 0, "score_against": 0})
-    attendees = set()
-    total_games = 0
-    baker_counter = Counter()
-
-    for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
-        res = results.get(str(idx)) or results.get(idx) or {}
-        s1 = res.get("t1")
-        s2 = res.get("t2")
-
-        r = calc_result(s1, s2)
-        if r is None:
-            continue
-
-        total_games += 1
-        players_all = list(t1) + list(t2)
-        attendees.update(players_all)
-
-        for p in players_all:
-            recs[p]["G"] += 1
-
-        s1_val = s1 or 0
-        s2_val = s2 or 0
-        for p in t1:
-            recs[p]["score_for"] += s1_val
-            recs[p]["score_against"] += s2_val
-        for p in t2:
-            recs[p]["score_for"] += s2_val
-            recs[p]["score_against"] += s1_val
-
-        if r == "W":
-            winners, losers = t1, t2
-        elif r == "L":
-            winners, losers = t2, t1
-        else:
-            winners, losers = [], []
-
-        for p in winners:
-            recs[p]["W"] += 1
-            recs[p]["points"] += WIN_POINT
-        for p in losers:
-            recs[p]["L"] += 1
-            recs[p]["points"] += LOSE_POINT
-        if r == "D":
-            for p in players_all:
-                recs[p]["D"] += 1
-                recs[p]["points"] += DRAW_POINT
-
-        if s1 is not None and s2 is not None:
-            if s1 > 0 and s2 == 0:
-                for p in t1:
-                    baker_counter[p] += 1
-            elif s2 > 0 and s1 == 0:
-                for p in t2:
-                    baker_counter[p] += 1
-
-    if not attendees or total_games == 0:
-        return []
-
-    lines = []
-    lines.append(f"출석 인원 {len(attendees)}명, 점수 입력된 경기 {total_games}게임")
-
-    best_points = -1
-    best_players = []
-    for name, r in recs.items():
-        if r["G"] == 0:
-            continue
-        if r["points"] > best_points:
-            best_points = r["points"]
-            best_players = [name]
-        elif r["points"] == best_points:
-            best_players.append(name)
-
-    if best_players and best_points >= 0:
-        if len(best_players) == 1:
-            who = best_players[0]
-            r = recs[who]
-            lines.append(f"오늘의 승점왕: {who} (승점 {best_points}점, {r['W']}승 {r['D']}무 {r['L']}패)")
-        else:
-            names_str = ", ".join(best_players)
-            example = recs[best_players[0]]
-            lines.append(
-                f"오늘의 공동 승점왕: {names_str} (모두 승점 {best_points}점, 예: {example['W']}승 {example['D']}무 {example['L']}패)"
-            )
-
-    undefeated = [name for name, r in recs.items() if r["G"] > 0 and r["L"] == 0]
-    if undefeated:
-        lines.append(f"오늘 무패 선수: {', '.join(undefeated)}")
-
-    if baker_counter:
-        max_b = max(baker_counter.values())
-        best_bakers = [n for n, c in baker_counter.items() if c == max_b]
-        lines.append(f"상대를 0점으로 이긴 셧아웃 경기 최다: {', '.join(best_bakers)} (총 {max_b}번)")
-
-    return lines
-
-
-# =========================================================
-# ✅ 모바일/PC 테이블 유틸 (중복 정리 + 호환 래퍼 유지)
-# =========================================================
-def is_mobile() -> bool:
-    return st.session_state.get("mobile_mode", False)
-
-
-def smart_table_hybrid(df_or_styler):
-    mobile_mode = is_mobile()
-
-    if mobile_mode:
-        st.markdown(
-            """
-            <style>
-            .mobile-table-wrap table {
-                width: 100% !important;
-                border-collapse: collapse !important;
-                table-layout: auto !important;
-                font-size: 0.78rem !important;
-            }
-            .mobile-table-wrap th,
-            .mobile-table-wrap td {
-                padding: 0.22rem 0.35rem !important;
-                white-space: nowrap !important;
-                word-break: keep-all !important;
-                vertical-align: middle !important;
-            }
-            .mobile-table-wrap thead th { font-weight: 800 !important; }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        if hasattr(df_or_styler, "data"):
-            df_m = df_or_styler.data.copy()
-        elif isinstance(df_or_styler, pd.DataFrame):
-            df_m = df_or_styler.copy()
-        else:
-            df_m = pd.DataFrame(df_or_styler)
-
-        html = df_m.to_html(index=False, escape=False)
-        st.markdown(f"<div class='mobile-table-wrap'>{html}</div>", unsafe_allow_html=True)
-        return
-
-    if hasattr(df_or_styler, "data"):
-        st.dataframe(df_or_styler, use_container_width=True, hide_index=True)
-    else:
-        st.dataframe(df_or_styler, use_container_width=True, hide_index=True)
-
-
-# ✅ 기존 코드 호환용 래퍼(다른 탭에서 호출해도 안 깨지게)
-def render_static_on_mobile(df_or_styler):
-    if is_mobile():
-        try:
-            st.markdown(df_or_styler.to_html(), unsafe_allow_html=True)
-        except Exception:
-            st.table(df_or_styler)
-    else:
-        st.dataframe(df_or_styler, use_container_width=True)
-
-
-def smart_table(df_or_styler, *, use_container_width=True):
-    smart_table_hybrid(df_or_styler)
-
-
-def _safe_df_for_styler(df: pd.DataFrame) -> pd.DataFrame:
-    df2 = df.copy().reset_index(drop=True)
-    cols = list(df2.columns)
-
-    seen = {}
-    new_cols = []
-    for c in cols:
-        if c not in seen:
-            seen[c] = 0
-            new_cols.append(c)
-        else:
-            seen[c] += 1
-            new_cols.append(f"{c}_{seen[c]}")
-    df2.columns = new_cols
-    return df2
-
-
-def colorize_df_names_hybrid(
-    df: pd.DataFrame,
-    roster_by_name: dict,
-    name_cols=None,
-    male_bg="#dbeafe",
-    female_bg="#fee2e2",
-):
-    name_cols = name_cols or ["이름"]
-    mobile_mode = is_mobile()
-
-    MUTED_WORDS = {"비밀", "모름"}
-    MUTED_TEXT = "#9ca3af"
-    MUTED_BG = "#f3f4f6"
-
-    base = df.copy()
-
-    if mobile_mode:
-        for col in base.columns:
-            def _muted_html(v):
-                s = str(v)
-                if s in MUTED_WORDS:
-                    return (
-                        f"<span style='color:{MUTED_TEXT};background:{MUTED_BG};"
-                        f"padding:0.04rem 0.22rem;border-radius:0.35rem;font-weight:600;display:inline-block;'>"
-                        f"{s}</span>"
-                    )
-                return v
-            base[col] = base[col].apply(_muted_html)
-
-        for col in name_cols:
-            if col not in base.columns:
-                continue
-
-            def _name_html(n):
-                raw = str(n)
-                meta = roster_by_name.get(raw, {})
-                g = meta.get("gender")
-                bg = male_bg if g == "남" else female_bg if g == "여" else "#f3f4f6"
-                return (
-                    "<span style='display:inline-block;padding:0.08rem 0.35rem;border-radius:0.45rem;"
-                    f"background:{bg};font-weight:800;'>{raw}</span>"
-                )
-            base[col] = base[col].apply(_name_html)
-
-        return base
-
-    safe = _safe_df_for_styler(base)
-
-    def _apply_name_bg(row):
-        styles = []
-        for c in safe.columns:
-            if c in name_cols:
-                n = row.get(c, "")
-                meta = roster_by_name.get(str(n), {})
-                g = meta.get("gender")
-                bg = male_bg if g == "남" else female_bg if g == "여" else "#f3f4f6"
-                styles.append(f"font-weight:800;background-color:{bg};border-radius:8px;")
-            else:
-                styles.append("")
-        return styles
-
-    sty = safe.style.apply(_apply_name_bg, axis=1)
-
-    def _muted_style(v):
-        if str(v) in MUTED_WORDS:
-            return f"color:{MUTED_TEXT};background-color:{MUTED_BG};font-weight:600;"
-        return ""
-
-    sty = sty.applymap(_muted_style)
-    return sty
-
-
-# =========================================================
-# (유지) UI helper
-# =========================================================
-def get_index_or_default(options, value, default_index=0):
+def load_json(path, default):
+    if not os.path.exists(path):
+        return default
     try:
-        return options.index(value)
-    except ValueError:
-        return default_index
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
 
 
-def section_card(title: str, emoji: str = "📌"):
-    st.markdown(
-        f"""
-        <div style="
-            margin-top: 0.8rem;
-            margin-bottom: 0.4rem;
-            padding: 0.55rem 0.9rem;
-            border-radius: 0.75rem;
-            background: linear-gradient(135deg, #ffffff 0%, #f9fafb 60%, #eef2ff 100%);
-            display: flex;
-            align-items: center;
-            gap: 0.4rem;
-        ">
-            <span style="font-size: 1.05rem;">{emoji}</span>
-            <span style="font-weight: 700; font-size: 1.02rem; color:#111827;">{title}</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+def save_json(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def load_players():
+    return load_json(ROSTER_FILE, [])
+
+
+def save_players(players):
+    save_json(ROSTER_FILE, players)
+
+
+def load_sessions():
+    return load_json(SESSIONS_FILE, {})
+
+
+def save_sessions(sessions):
+    save_json(SESSIONS_FILE, sessions)
 
 
 # =========================================================
-# ✅ CSS (그대로 유지)
+# 2) Streamlit 기본 UI / CSS
 # =========================================================
-MOBILE_LANDSCAPE = """
-<style>
-@media screen and (max-width: 768px) and (orientation: landscape) {
-    .block-container {
-        padding-left: 0.35rem !important;
-        padding-right: 0.35rem !important;
-        padding-top: 0.4rem !important;
-        padding-bottom: 0.4rem !important;
-    }
-    h1 { font-size: 1.05rem !important; margin-bottom: 0.35rem !important; }
-    h2 { font-size: 0.95rem !important; }
-    h3, h4 { font-size: 0.85rem !important; }
-    p, span, label, div { font-size: 0.78rem !important; }
-    div[data-baseweb="select"] {
-        font-size: 0.78rem !important;
-        min-height: 1.65rem !important;
-        padding-top: 0.05rem !important;
-        padding-bottom: 0.05rem !important;
-    }
-    div.stSelectbox > label { font-size: 0.72rem !important; }
-    [data-testid="stDataFrame"] table { font-size: 0.65rem !important; }
-    [data-testid="stDataFrame"] table td,
-    [data-testid="stDataFrame"] table th { padding: 2px 3px !important; }
-    [data-testid="stDataFrame"] div[role="row"] { min-height: 14px !important; }
-    div[data-testid="stButton"] > button {
-        font-size: 0.80rem !important;
-        padding-top: 0.50rem !important;
-        padding-bottom: 0.50rem !important;
-        margin-top: 0.2rem !important;
-        margin-bottom: 0.2rem !important;
-    }
-    .stMultiSelect div[data-baseweb="tag"] {
-        font-size: 0.70rem !important;
-        padding: 1px 4px !important;
-    }
-}
-</style>
-"""
-st.markdown(MOBILE_LANDSCAPE, unsafe_allow_html=True)
-
-BUTTON_CSS = """
-<style>
-div[data-testid="stButton"] > button {
-    background-color: #5fcdb2 !important;
-    color: #ffffff !important;
-    font-weight: 600 !important;
-    border: none !important;
-    border-radius: 10px !important;
-    padding: 10px 0 !important;
-    transition: all 0.12s ease-out;
-}
-div[data-testid="stButton"] > button:hover {
-    filter: brightness(1.06) !important;
-    transform: translateY(-1px);
-}
-@media (max-width: 768px) {
-    div[data-testid="stButton"] > button {
-        font-size: 0.95rem !important;
-        padding-top: 0.6rem !important;
-        padding-bottom: 0.6rem !important;
-    }
-}
-</style>
-"""
-st.markdown(BUTTON_CSS, unsafe_allow_html=True)
+st.set_page_config(
+    page_title=APP_TITLE,
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
 
 st.markdown(
     """
 <style>
-.mbti-tag {
-    display:inline-block;
-    background:#f4e8ff;
-    color:#6d28d9;
-    border-radius:8px;
-    padding:2px 7px;
-    font-size:0.73rem;
-    font-weight:600;
-    margin-left:4px;
+/* 버튼 래핑 */
+.main-primary-btn button {
+  width: 100%;
+  border-radius: 12px !important;
+  font-weight: 800 !important;
+  padding: 0.65rem 0.85rem !important;
+}
+.main-danger-btn button {
+  width: 100%;
+  border-radius: 12px !important;
+  font-weight: 800 !important;
+  padding: 0.65rem 0.85rem !important;
+}
+
+/* 게임 미리보기 row */
+.msa-game-row{
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+.msa-game-meta{
+  font-size: 0.82rem;
+  color: #6b7280;
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+.msa-game-line{
+  font-size: 0.98rem;
+  line-height: 1.25;
+}
+
+/* 배지 */
+.name-badge{
+  display: inline-block;
+  padding: 2px 8px;
+  margin: 0 3px 3px 0;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 0.88rem;
+  border: 1px solid rgba(0,0,0,0.06);
+  white-space: nowrap;
 }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-MOBILE_CSS = """
-<style>
-.block-container {
-    padding-top: 0.8rem;
-    padding-bottom: 1.5rem;
-    padding-left: 0.9rem;
-    padding-right: 0.9rem;
-}
-.name-badge {
-    color: #111111 !important;
-    white-space: nowrap;
-}
-@media (max-width: 768px) {
-    .block-container { padding-left: 0.6rem; padding-right: 0.6rem; }
-    h1 { font-size: 1.4rem; margin-bottom: 0.7rem; }
-    h2 { font-size: 1.15rem; margin-bottom: 0.5rem; }
-    h3 { font-size: 1.0rem; margin-bottom: 0.4rem; }
-    .stTabs [data-baseweb="tab-list"] { gap: 0.15rem; flex-wrap: wrap; }
-    .stTabs [role="tab"] { font-size: 0.8rem; padding: 0.2rem 0.45rem; }
-    .stDataFrame { font-size: 0.8rem; }
-    .name-badge { font-size: 0.8rem !important; padding: 2px 6px !important; }
-}
-</style>
-"""
-st.markdown(MOBILE_CSS, unsafe_allow_html=True)
+
+# =========================================================
+# 3) 공용 유틸
+# =========================================================
+def safe_rerun():
+    if hasattr(st, "rerun"):
+        st.rerun()
+    elif hasattr(st, "experimental_rerun"):
+        st.experimental_rerun()
+
+
+def get_index_or_default(options, value, default_index=0):
+    try:
+        return options.index(value)
+    except Exception:
+        return default_index
+
+
+def section_card(title, emoji=""):
+    st.markdown(
+        f"""
+        <div style="
+            padding: 0.9rem 1.0rem;
+            border-radius: 14px;
+            border: 1px solid #e5e7eb;
+            background: #ffffff;
+            margin: 0.4rem 0 0.9rem 0;
+        ">
+            <div style="font-size:1.05rem; font-weight:900;">
+                {emoji} {title}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_name_badge(name: str, roster_by_name: dict):
+    info = roster_by_name.get(name, {}) or {}
+    gender = info.get("gender", "남")
+    grp = info.get("group", "미배정")
+
+    if gender == "여":
+        bg = "#fee2e2"
+    else:
+        bg = "#dbeafe"
+
+    # 조 표시 테두리 살짝
+    border = "#ef4444" if "A" in str(grp) else "#3b82f6" if "B" in str(grp) else "rgba(0,0,0,0.08)"
+    return f"<span class='name-badge' style='background:{bg};border-color:{border};'>{name}</span>"
+
+
+def get_ntrp_value(meta: dict):
+    v = meta.get("ntrp", None)
+    if v in (None, "", "모름"):
+        return None
+    try:
+        return float(v)
+    except Exception:
+        return None
+
+
+def is_guest_name(name: str, roster_list: list):
+    # roster_list에 없는 이름이면 게스트로 간주(간단 규칙)
+    names = {p.get("name") for p in (roster_list or [])}
+    return name not in names
+
+
+def guest_bucket(name: str, roster_list: list):
+    # 게스트는 통계에서 "게스트"로 묶고 싶으면 여기서 처리 가능
+    # 지금은 그냥 이름 그대로 반환
+    return name
+
+
+def normalize_schedule(raw):
+    """
+    sessions.json에서 불러온 schedule이 list 형태일 수 있으니
+    화면에서는 항상 (gt, t1, t2, court) 튜플로 쓰게 정리.
+    """
+    out = []
+    for item in (raw or []):
+        try:
+            gt, t1, t2, court = item
+            out.append((gt, list(t1), list(t2), court))
+        except Exception:
+            pass
+    return out
+
+
+def schedule_to_jsonable(schedule):
+    """
+    저장 직전에 list로 바꿔서 json dump 가능하게.
+    """
+    out = []
+    for gt, t1, t2, court in (schedule or []):
+        out.append([gt, list(t1), list(t2), court])
+    return out
+
+
+def count_player_games(schedule):
+    cnt = Counter()
+    for gt, t1, t2, court in (schedule or []):
+        for p in list(t1) + list(t2):
+            cnt[p] += 1
+    return cnt
+
+
+def calc_result(s1, s2):
+    # 팀1 기준 결과: s1>s2 => W, s1<s2 => L, 같으면 D
+    if s1 is None or s2 is None:
+        return None
+    try:
+        a = int(s1)
+        b = int(s2)
+    except Exception:
+        return None
+    if a > b:
+        return "W"
+    if a < b:
+        return "L"
+    return "D"
+
+
+def classify_game_group(all_players, roster_by_name, day_groups_snapshot=None):
+    """
+    all_players가 전부 A조면 "A", 전부 B조면 "B", 그 외 "O"
+    day_groups_snapshot이 있으면 그 값을 우선 사용.
+    """
+    groups = []
+    snap = day_groups_snapshot or {}
+    for p in all_players:
+        g = snap.get(p)
+        if not g:
+            g = roster_by_name.get(p, {}).get("group", "미배정")
+        groups.append(g)
+
+    onlyA = all(("A" in str(g)) for g in groups)
+    onlyB = all(("B" in str(g)) for g in groups)
+    if onlyA:
+        return "A"
+    if onlyB:
+        return "B"
+    return "O"
+
+
+def detect_score_warnings(day_data):
+    """
+    5:5는 정상으로 간주, 그 외 동점은 경고.
+    """
+    warnings = []
+    schedule = normalize_schedule(day_data.get("schedule", []))
+    results = day_data.get("results", {}) or {}
+
+    for idx, (gt, t1, t2, court) in enumerate(schedule, start=1):
+        res = results.get(str(idx)) or results.get(idx) or {}
+        s1 = res.get("t1", None)
+        s2 = res.get("t2", None)
+        if s1 is None or s2 is None:
+            continue
+        try:
+            a = int(s1)
+            b = int(s2)
+        except Exception:
+            continue
+        if a == b and not (a == 5 and b == 5):
+            warnings.append(f"{idx}번 게임이 동점입니다: {a}:{b}")
+    return warnings
+
+
+def build_daily_report(sel_date, day_data):
+    """
+    아주 간단한 요약 리포트(원하면 더 화려하게 확장 가능)
+    """
+    schedule = normalize_schedule(day_data.get("schedule", []))
+    results = day_data.get("results", {}) or {}
+    if not schedule:
+        return []
+
+    lines = []
+    decided = 0
+    for i, (gt, t1, t2, court) in enumerate(schedule, start=1):
+        res = results.get(str(i)) or results.get(i) or {}
+        s1 = res.get("t1")
+        s2 = res.get("t2")
+        r = calc_result(s1, s2)
+        if r is None:
+            continue
+        decided += 1
+    lines.append(f"총 {len(schedule)}게임 중 점수 입력 완료: {decided}게임")
+
+    # 득실 TOP 간단
+    score_for = Counter()
+    score_against = Counter()
+    for i, (gt, t1, t2, court) in enumerate(schedule, start=1):
+        res = results.get(str(i)) or results.get(i) or {}
+        s1 = res.get("t1")
+        s2 = res.get("t2")
+        r = calc_result(s1, s2)
+        if r is None:
+            continue
+        try:
+            a = int(s1)
+            b = int(s2)
+        except Exception:
+            continue
+        for p in t1:
+            score_for[p] += a
+            score_against[p] += b
+        for p in t2:
+            score_for[p] += b
+            score_against[p] += a
+
+    if score_for:
+        top = score_for.most_common(1)[0]
+        lines.append(f"최다 득점: {top[0]} ({top[1]}점)")
+    if score_against:
+        low = min(score_against.items(), key=lambda x: x[1])
+        lines.append(f"최소 실점(누적): {low[0]} ({low[1]}점)")
+
+    return lines
+
+
+def get_daily_fortune(name: str):
+    # 가벼운 랜덤 운세
+    tips = [
+        "오늘은 리턴 타이밍이 잘 맞는 날이에요. 자신 있게 들어가봐요!",
+        "서브 넣을 때 1초만 더 멈추고 루틴 지키면 실수가 확 줄어요.",
+        "스트로크보다 발이 먼저! 스플릿스텝만 잘해도 경기 흐름이 바뀌어요.",
+        "포핸드로 마무리 욕심내지 말고, 한 번 더 깊게 보내면 이겨요.",
+        "오늘은 네트 플레이가 통하는 날. 짧은 공 오면 과감하게 들어가요!",
+    ]
+    random.seed(hash(name) % (10**9))
+    return random.choice(tips)
+
+
+def colorize_df_names(df, roster_by_name, cols):
+    """
+    pandas Styler로 이름 컬럼에 성별 색을 살짝 입힘.
+    """
+    def style_cell(val):
+        info = roster_by_name.get(val, {}) or {}
+        g = info.get("gender", "남")
+        if g == "여":
+            return "background-color:#fee2e2; font-weight:800;"
+        return "background-color:#dbeafe; font-weight:800;"
+
+    sty = df.style
+    for c in cols:
+        if c in df.columns:
+            sty = sty.applymap(style_cell, subset=[c])
+    return sty
+
+
+def smart_table(df_or_styler, use_container_width=True):
+    # 모바일이면 간단 HTML 렌더(원하면 더 개선 가능)
+    mobile_mode = st.session_state.get("mobile_mode", False)
+    if mobile_mode:
+        try:
+            html = df_or_styler.to_html()
+        except Exception:
+            html = pd.DataFrame(df_or_styler).to_html()
+        st.markdown(html, unsafe_allow_html=True)
+    else:
+        st.dataframe(df_or_styler, use_container_width=use_container_width)
+
+
+def render_score_summary_table(rows, roster_by_name):
+    """
+    rows: [{게임, 코트, 타입, t1, t2, t1_score, t2_score}, ...]
+    """
+    out_rows = []
+    for r in rows:
+        t1 = r.get("t1", [])
+        t2 = r.get("t2", [])
+        t1_txt = " ".join([x for x in t1])
+        t2_txt = " ".join([x for x in t2])
+        out_rows.append(
+            {
+                "게임": r.get("게임"),
+                "코트": r.get("코트"),
+                "타입": r.get("타입"),
+                "팀1": t1_txt,
+                "팀2": t2_txt,
+                "점수": f"{r.get('t1_score','')}:{r.get('t2_score','')}",
+            }
+        )
+
+    df = pd.DataFrame(out_rows)
+    df = df.set_index("게임")
+    df.index.name = "게임"
+    st.dataframe(df, use_container_width=True)
+
+
+def iter_games(sessions, include_special=False):
+    """
+    sessions 구조:
+      sessions[date_str] = {
+        "schedule": [...],
+        "results": {...},
+        "court_type": "...",
+        "special_match": bool,
+        "groups_snapshot": {...}
+      }
+    yield: (d, idx, gdict)
+    """
+    for d, day_data in (sessions or {}).items():
+        if d == "전체":
+            continue
+        if not include_special and bool(day_data.get("special_match", False)):
+            continue
+
+        schedule = normalize_schedule(day_data.get("schedule", []))
+        results = day_data.get("results", {}) or {}
+        court_type = day_data.get("court_type", COURT_TYPES[0])
+        groups_snapshot = day_data.get("groups_snapshot") or {}
+
+        for idx, (gt, t1, t2, court) in enumerate(schedule, start=1):
+            res = results.get(str(idx)) or results.get(idx) or {}
+            s1 = res.get("t1")
+            s2 = res.get("t2")
+            sides = res.get("sides", {}) or {}
+            yield d, idx, {
+                "type": gt,
+                "court": court,
+                "t1": list(t1),
+                "t2": list(t2),
+                "score1": s1,
+                "score2": s2,
+                "court_type": court_type,
+                "sides": sides,
+                "groups_snapshot": groups_snapshot,
+            }
 
 
 # =========================================================
-# ✅ 세션/로스터 로드 + 정규화
+# 4) 대진 생성 알고리즘 (간단 구현 / 필요시 교체)
 # =========================================================
+def _gender_of(name, roster_by_name):
+    return roster_by_name.get(name, {}).get("gender", "남")
+
+
+def _ntrp_of(name, roster_by_name):
+    v = roster_by_name.get(name, {}).get("ntrp", None)
+    try:
+        return None if v in (None, "", "모름") else float(v)
+    except Exception:
+        return None
+
+
+def _pick_by_ntrp_closest(cands, target_ntrp, roster_by_name):
+    if not cands:
+        return None
+    if target_ntrp is None:
+        return random.choice(cands)
+
+    scored = []
+    for p in cands:
+        pn = _ntrp_of(p, roster_by_name)
+        if pn is None:
+            scored.append((9999.0, random.random(), p))
+        else:
+            scored.append((abs(pn - target_ntrp), random.random(), p))
+    scored.sort(key=lambda x: (x[0], x[1]))
+    return scored[0][2] if scored else random.choice(cands)
+
+
+def build_schedule_by_total_rounds(players, gtype, court_count, total_rounds, mode_name, use_ntrp, roster_by_name):
+    schedule = []
+    players = list(players)
+
+    def pick_four(pool, mode):
+        pool = pool[:]
+        if mode == "동성복식 (남+남 / 여+여)":
+            men = [p for p in pool if _gender_of(p, roster_by_name) == "남"]
+            women = [p for p in pool if _gender_of(p, roster_by_name) == "여"]
+            cand = men if len(men) >= 4 else women
+            if len(cand) < 4:
+                return None
+            return random.sample(cand, 4)
+
+        if mode == "혼합복식 (남+여 짝)":
+            men = [p for p in pool if _gender_of(p, roster_by_name) == "남"]
+            women = [p for p in pool if _gender_of(p, roster_by_name) == "여"]
+            if len(men) < 2 or len(women) < 2:
+                return None
+            return random.sample(men, 2) + random.sample(women, 2)
+
+        if len(pool) < 4:
+            return None
+        return random.sample(pool, 4)
+
+    def pick_two(pool, mode):
+        pool = pool[:]
+        if mode == "동성 단식":
+            men = [p for p in pool if _gender_of(p, roster_by_name) == "남"]
+            women = [p for p in pool if _gender_of(p, roster_by_name) == "여"]
+            cand = men if len(men) >= 2 else women
+            if len(cand) < 2:
+                return None
+            return random.sample(cand, 2)
+        if len(pool) < 2:
+            return None
+        return random.sample(pool, 2)
+
+    total_games = int(total_rounds) * int(court_count)
+    for gi in range(total_games):
+        court = (gi % int(court_count)) + 1
+
+        if gtype == "복식":
+            four = pick_four(players, mode_name)
+            if not four:
+                continue
+
+            # 팀 구성(혼복이면 남+여로 묶기)
+            if mode_name == "혼합복식 (남+여 짝)":
+                men = [p for p in four if _gender_of(p, roster_by_name) == "남"]
+                women = [p for p in four if _gender_of(p, roster_by_name) == "여"]
+                t1 = [men[0], women[0]]
+                t2 = [men[1], women[1]]
+            else:
+                # NTRP 켜면 비슷하게 섞기(아주 간단)
+                if use_ntrp:
+                    four_sorted = sorted(
+                        four,
+                        key=lambda x: (_ntrp_of(x, roster_by_name) is None, _ntrp_of(x, roster_by_name) or 999),
+                    )
+                    t1 = [four_sorted[0], four_sorted[3]]
+                    t2 = [four_sorted[1], four_sorted[2]]
+                else:
+                    t1 = [four[0], four[1]]
+                    t2 = [four[2], four[3]]
+
+            schedule.append(("복식", t1, t2, court))
+
+        else:
+            two = pick_two(players, mode_name)
+            if not two:
+                continue
+            schedule.append(("단식", [two[0]], [two[1]], court))
+
+    return schedule
+
+
+def build_doubles_schedule(players, max_games, court_count, mode, use_ntrp, group_only, roster_by_name):
+    players = list(players)
+    max_games = int(max_games)
+    court_count = int(court_count)
+
+    # 그룹만 옵션(간단): A/B 외는 제외
+    if group_only:
+        players = [p for p in players if roster_by_name.get(p, {}).get("group") in ("A조", "B조")]
+
+    games_cnt = Counter({p: 0 for p in players})
+    schedule = []
+
+    def can_play(p):
+        return games_cnt[p] < max_games
+
+    def pick_team(pool, want_gender=None):
+        cand = [p for p in pool if can_play(p)]
+        if want_gender:
+            cand = [p for p in cand if _gender_of(p, roster_by_name) == want_gender]
+        return cand
+
+    # 총 게임 목표: 모든 사람 max_games 채우려고 시도
+    target_total_games = len(players) * max_games // 4
+    tries = 4000
+
+    while tries > 0 and len(schedule) < target_total_games:
+        tries -= 1
+
+        # 라운드당 코트 수만큼 뽑음
+        round_pool = [p for p in players if can_play(p)]
+        if len(round_pool) < 4:
+            break
+
+        for court in range(1, court_count + 1):
+            round_pool = [p for p in players if can_play(p)]
+            if len(round_pool) < 4:
+                break
+
+            if mode == "혼합복식":
+                men = pick_team(round_pool, "남")
+                women = pick_team(round_pool, "여")
+                if len(men) < 2 or len(women) < 2:
+                    continue
+                m1, m2 = random.sample(men, 2)
+                w1, w2 = random.sample(women, 2)
+
+                # NTRP 켜면 대충 비슷하게
+                if use_ntrp:
+                    # 남 중 하나 고르고, 그와 비슷한 여 고르기
+                    m1 = random.choice([m1, m2])
+                    target = _ntrp_of(m1, roster_by_name)
+                    w1 = _pick_by_ntrp_closest(women, target, roster_by_name) or w1
+                    # 나머지
+                    m_rest = [x for x in (m1, m2) if x != m1][0]
+                    w_rest = [x for x in (w1, w2) if x != w1] or [w2]
+                    w2 = w_rest[0]
+
+                t1 = [m1, w1]
+                t2 = [m2, w2]
+                picked = t1 + t2
+
+            elif mode == "동성복식":
+                men = pick_team(round_pool, "남")
+                women = pick_team(round_pool, "여")
+                cand = men if len(men) >= 4 else women
+                if len(cand) < 4:
+                    continue
+                picked = random.sample(cand, 4)
+                t1 = [picked[0], picked[1]]
+                t2 = [picked[2], picked[3]]
+
+            else:
+                picked = random.sample(round_pool, 4)
+                # NTRP 켜면 실력 비슷하게 분배(초간단)
+                if use_ntrp:
+                    picked_sorted = sorted(
+                        picked,
+                        key=lambda x: (_ntrp_of(x, roster_by_name) is None, _ntrp_of(x, roster_by_name) or 999),
+                    )
+                    t1 = [picked_sorted[0], picked_sorted[3]]
+                    t2 = [picked_sorted[1], picked_sorted[2]]
+                else:
+                    t1 = [picked[0], picked[1]]
+                    t2 = [picked[2], picked[3]]
+
+            # 카운트 반영
+            for p in picked:
+                games_cnt[p] += 1
+            schedule.append(("복식", t1, t2, court))
+
+            if len(schedule) >= target_total_games:
+                break
+
+    return schedule
+
+
+def build_singles_schedule(players, max_games, court_count, mode, use_ntrp, group_only, roster_by_name):
+    players = list(players)
+    max_games = int(max_games)
+    court_count = int(court_count)
+
+    if group_only:
+        players = [p for p in players if roster_by_name.get(p, {}).get("group") in ("A조", "B조")]
+
+    games_cnt = Counter({p: 0 for p in players})
+    schedule = []
+
+    target_total_games = len(players) * max_games // 2
+    tries = 4000
+
+    def can_play(p):
+        return games_cnt[p] < max_games
+
+    while tries > 0 and len(schedule) < target_total_games:
+        tries -= 1
+
+        pool = [p for p in players if can_play(p)]
+        if len(pool) < 2:
+            break
+
+        for court in range(1, court_count + 1):
+            pool = [p for p in players if can_play(p)]
+            if len(pool) < 2:
+                break
+
+            if mode == "동성 단식":
+                men = [p for p in pool if _gender_of(p, roster_by_name) == "남"]
+                women = [p for p in pool if _gender_of(p, roster_by_name) == "여"]
+                cand = men if len(men) >= 2 else women
+                if len(cand) < 2:
+                    continue
+                a, b = random.sample(cand, 2)
+            else:
+                a, b = random.sample(pool, 2)
+
+            if use_ntrp:
+                # a 고르고, a와 가장 비슷한 b로
+                target = _ntrp_of(a, roster_by_name)
+                cand = [x for x in pool if x != a]
+                b2 = _pick_by_ntrp_closest(cand, target, roster_by_name)
+                if b2:
+                    b = b2
+
+            games_cnt[a] += 1
+            games_cnt[b] += 1
+            schedule.append(("단식", [a], [b], court))
+
+            if len(schedule) >= target_total_games:
+                break
+
+    return schedule
+
+
+def build_hanul_aa_schedule(ordered_players, court_count):
+    """
+    ✅ "한울 AA 방식" 대체용 간단 고정 패턴 (결정적/고정)
+    - 입력 순서가 같으면 항상 같은 대진이 나옴(버튼 눌러도 안 바뀌게)
+    - 1인당 4게임이 되도록 설계(5~16명 권장)
+    - 정확히 원본 AA 테이블이 있으시면, 이 함수만 원본으로 교체하면 됨
+    """
+    players = list(ordered_players)
+    n = len(players)
+    cc = max(1, int(court_count))
+
+    if n < 5:
+        return []
+
+    # 총 슬롯 = n*4, 게임당 4명 => 총 게임수 = n
+    total_games = n
+
+    schedule = []
+    for gi in range(total_games):
+        court = (gi % cc) + 1
+
+        # 4명 선택: 결정적(모듈러)
+        a = players[(gi + 0) % n]
+        b = players[(gi + 1) % n]
+        c = players[(gi + 2) % n]
+        d = players[(gi + 3) % n]
+
+        # 팀 구성도 섞어줌(gi parity로 변형)
+        if gi % 2 == 0:
+            t1 = [a, c]
+            t2 = [b, d]
+        else:
+            t1 = [a, b]
+            t2 = [c, d]
+
+        # 중복 4명일 수 있는 n=5 같은 케이스 방지(아주 드물게 발생 가능)
+        if len(set(t1 + t2)) < 4:
+            # fallback: 다음 인덱스도 끌어다 쓰기
+            e = players[(gi + 4) % n]
+            t2 = [c, e]
+            if len(set(t1 + t2)) < 4:
+                continue
+
+        schedule.append(("복식", t1, t2, court))
+
+    return schedule
+
+
+# =========================================================
+# 5) 상태 초기화: roster / sessions
+# =========================================================
+if "mobile_mode" not in st.session_state:
+    st.session_state.mobile_mode = False
+
+with st.sidebar:
+    st.checkbox("📱 모바일 모드(간단 렌더)", key="mobile_mode")
+    st.caption("모바일 모드는 표 렌더를 가볍게 합니다.")
+
 if "roster" not in st.session_state:
     st.session_state.roster = load_players()
-
-roster = st.session_state.roster
-
-changed = False
-for p in roster:
-    g = str(p.get("group", "미배정"))
-    if g.startswith("미배정") and g != "미배정":
-        p["group"] = "미배정"
-        changed = True
-
-if changed:
-    save_players(roster)
-    st.session_state.roster = roster
 
 if "sessions" not in st.session_state:
     st.session_state.sessions = load_sessions()
 
-if "current_order" not in st.session_state:
-    st.session_state.current_order = []
-if "shuffle_count" not in st.session_state:
-    st.session_state.shuffle_count = 0
-
-# PATCH states
-if "aa_seed_enabled" not in st.session_state:
-    st.session_state.aa_seed_enabled = False
-if "aa_seed_players" not in st.session_state:
-    st.session_state.aa_seed_players = []
-if "today_schedule" not in st.session_state:
-    st.session_state.today_schedule = []
-if "today_court_type" not in st.session_state:
-    st.session_state.today_court_type = COURT_TYPES[0]
-if "save_date" not in st.session_state:
-    st.session_state.save_date = date.today()
-if "pending_delete" not in st.session_state:
-    st.session_state.pending_delete = None
-if "target_games" not in st.session_state:
-    st.session_state.target_games = None
-if "min_games_guard" not in st.session_state:
-    st.session_state.min_games_guard = 1
-
+roster = st.session_state.roster
 sessions = st.session_state.sessions
 
-# ✅ 전역 메타
+# roster_by_name 구성
 roster_by_name = {p.get("name"): p for p in roster if p.get("name")}
 
 
 # =========================================================
-# 메인 UI
+# 6) 탭 구성
 # =========================================================
-st.title("🎾 마리아 상암포바 도우미 MSA (Beta)")
-
-mobile_mode = st.checkbox(
-    "📱 모바일 최적화 모드",
-    value=True,
-    help="핸드폰으로 볼 때 켜 두는 걸 추천!",
-)
-st.session_state["mobile_mode"] = mobile_mode
-
-MOBILE_SCORE_ROW_CSS = """
-<style>
-@media (max-width: 768px) {
-    .score-row {
-        display: flex;
-        flex-wrap: nowrap;
-        align-items: center;
-        gap: 0.25rem;
-        width: 100%;
-    }
-    .score-row [data-testid="column"] {
-        flex: 0 0 auto !important;
-        padding-left: 0.1rem !important;
-        padding-right: 0.1rem !important;
-    }
-    .score-row [data-baseweb="select"] {
-        min-width: 3.0rem;
-        font-size: 0.78rem;
-        min-height: 1.9rem;
-    }
-    .score-row .name-badge,
-    .score-row span {
-        font-size: 0.8rem;
-    }
-}
-</style>
-"""
-st.markdown(MOBILE_SCORE_ROW_CSS, unsafe_allow_html=True)
-
-# 탭 순서 유지
-tab3, tab5, tab4, tab1, tab2 = st.tabs(
-    ["📋 경기 기록 / 통계", "📆 월별 통계", "👤 개인별 통계", "🧾 선수 정보 관리", "🎾 오늘 경기 세션"]
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    ["1) 선수 관리", "2) 오늘 경기 세션", "3) 경기 기록 / 통계", "4) 개인별 통계", "5) 월별 통계"]
 )
 
 
 # =========================================================
-# TAB1: 선수 정보 관리
+# TAB1) 선수 관리 (간단 편집)
 # =========================================================
-def _format_ntrp_safe(v) -> str:
-    if v is None or (isinstance(v, float) and pd.isna(v)):
-        return "모름"
-    try:
-        return f"{float(v):.1f}"
-    except Exception:
-        return "모름"
-
-
 with tab1:
-    st.header("🧾 선수 정보 관리")
-    st.subheader("등록된 선수 목록")
+    section_card("선수 관리", "👥")
 
-    if roster:
-        df = pd.DataFrame(roster)
-        df_disp = df.copy()
+    if not roster:
+        st.info("선수가 없습니다. 아래에서 추가해 주세요.")
 
-        # ✅ NTRP 표시용 컬럼(안전)
-        df_disp["NTRP"] = df_disp.get("ntrp", pd.Series([None] * len(df_disp))).apply(_format_ntrp_safe)
+    df = pd.DataFrame(roster) if roster else pd.DataFrame(
+        columns=["name", "gender", "group", "ntrp", "age_group", "racket", "hand", "mbti"]
+    )
 
-        # 원본 ntrp 숨김
-        if "ntrp" in df_disp.columns:
-            df_disp = df_disp.drop(columns=["ntrp"])
+    # 컬럼 보장
+    for col in ["name", "gender", "group", "ntrp", "age_group", "racket", "hand", "mbti"]:
+        if col not in df.columns:
+            df[col] = ""
 
-        # 한글화
-        df_disp = df_disp.rename(
-            columns={
-                "name": "이름",
-                "gender": "성별",
-                "hand": "주손",
-                "age_group": "나이대",
-                "racket": "라켓",
-                "group": "실력조",
-                "mbti": "MBTI",
-            }
-        )
+    st.markdown("### 선수 명단")
+    edited = st.data_editor(
+        df,
+        use_container_width=True,
+        num_rows="dynamic",
+        column_config={
+            "name": st.column_config.TextColumn("이름", required=True),
+            "gender": st.column_config.SelectboxColumn("성별", options=["남", "여"], required=False),
+            "group": st.column_config.SelectboxColumn("조", options=["미배정", "A조", "B조"], required=False),
+            "ntrp": st.column_config.SelectboxColumn("NTRP", options=NTRP_OPTIONS, required=False),
+            "age_group": st.column_config.TextColumn("연령대", required=False),
+            "racket": st.column_config.TextColumn("라켓", required=False),
+            "hand": st.column_config.SelectboxColumn("주손", options=["오른손", "왼손", "양손"], required=False),
+            "mbti": st.column_config.TextColumn("MBTI", required=False),
+        },
+        key="roster_editor",
+    )
 
-        # 모바일 헤더 축약
-        if mobile_mode:
-            df_disp = df_disp.rename(columns={"나이대": "나이", "실력조": "조"})
-            keep_cols = ["이름", "나이", "성별", "주손", "라켓", "조", "MBTI", "NTRP"]
-            keep_cols = [c for c in keep_cols if c in df_disp.columns]
-            df_disp = df_disp[keep_cols]
-
-        # 그룹 정규화 표시
-        col_grp = "실력조" if not mobile_mode else "조"
-        if col_grp in df_disp.columns:
-            def _norm_group(v):
-                s = "" if v is None else str(v)
-                return "미배정" if s.startswith("미배정") else s
-
-            df_disp[col_grp] = df_disp[col_grp].apply(_norm_group)
-
-            group_order_tab1 = ["A조", "B조", "미배정"]
-            for grp in group_order_tab1:
-                sub = df_disp[df_disp[col_grp] == grp].copy()
-
-                st.markdown(f"■ {grp}")
-                if sub.empty:
-                    st.caption("없음")
-                    st.markdown("<div style='height:0.4rem;'></div>", unsafe_allow_html=True)
-                    continue
-
-                styled_or_df = colorize_df_names_hybrid(sub, roster_by_name, name_cols=["이름"])
-                smart_table_hybrid(styled_or_df)
-        else:
-            st.warning("그룹(조) 컬럼을 찾지 못했어. 데이터 컬럼명을 확인해줘.")
-    else:
-        st.info("등록된 선수가 없습니다.")
-
-    # -----------------------------------------------------
-    # 2) 선수 통계 요약 + 분포 다이어그램
-    # -----------------------------------------------------
-    if roster:
-        st.markdown("---")
-        st.subheader("📊 선수 통계 요약")
-
-        total_players = len(roster)
-        age_counter = Counter(p.get("age_group", "비밀") for p in roster)
-        gender_counter = Counter(p.get("gender", "남") for p in roster)
-        hand_counter = Counter(p.get("hand", "오른손") for p in roster)
-        racket_counter = Counter(p.get("racket", "기타") for p in roster)
-
-        # ✅ NTRP도 안전 처리
-        ntrp_counter = Counter(_format_ntrp_safe(p.get("ntrp")) for p in roster)
-
-        mbti_counter_raw = Counter(p.get("mbti", "모름") for p in roster)
-        mbti_counter = Counter({k: v for k, v in mbti_counter_raw.items() if k not in (None, "", "모름")})
-
-        st.markdown(f"- 전체 인원: **{total_players}명**")
-        st.markdown(f"- 나이대: " + " / ".join(f"{k} {v}명" for k, v in age_counter.items()))
-        st.markdown(f"- 성별: 남자 {gender_counter.get('남', 0)}명, 여자 {gender_counter.get('여', 0)}명")
-        st.markdown(f"- 주손: 오른손 {hand_counter.get('오른손', 0)}명, 왼손 {hand_counter.get('왼손', 0)}명")
-        st.markdown(f"- 라켓 브랜드: " + " / ".join(f"{k} {v}명" for k, v in racket_counter.items()))
-        st.markdown(f"- NTRP 분포: " + " / ".join(f"NTRP {k}: {v}명" for k, v in ntrp_counter.items()))
-        st.markdown(f"- MBTI 분포: " + (" / ".join(f"{k} {v}명" for k, v in mbti_counter.items()) if mbti_counter else "집계할 MBTI가 없습니다."))
-
-        # 분포 다이어그램(기존 유지)
-        def render_distribution_section(title, counter_dict, total_count, min_count):
-            if not counter_dict or total_count == 0:
-                return
-
-            rows = []
-            for key, cnt in counter_dict.items():
-                label = key if key not in [None, ""] else "미입력"
-                if cnt < min_count:
-                    continue
-                pct = (cnt / total_count) * 100
-                rows.append({"항목": label, "인원": cnt, "비율(%)": pct, "표기": f"{label} {cnt}명 ({pct:.1f}%)"})
-
-            if not rows:
-                st.info(f"{title}: 표시할 항목이 없습니다. (최소 인원 수 필터에 걸림)")
-                return
-
-            df2 = pd.DataFrame(rows).sort_values("인원", ascending=False).reset_index(drop=True)
-
-            st.markdown(f"**{title}**")
-            df_display = df2[["항목", "인원", "비율(%)"]].copy()
-            df_display["비율(%)"] = df_display["비율(%)"].map(lambda x: f"{x:.1f}%")
-            st.dataframe(df_display, use_container_width=True, hide_index=True)
-
-            fig = px.pie(df2, names="표기", values="인원", hole=0.4)
-            fig.update_traces(textposition="inside", texttemplate="%{label}")
-            fig.update_layout(margin=dict(t=10, b=10, l=10, r=10), showlegend=False, height=320)
-            st.plotly_chart(fig, use_container_width=True)
-
-        with st.expander("📈 항목별 분포 다이어그램 (각 항목 100% 기준) 🔽 아래로 내려보세요.", expanded=False):
-            with st.expander("필터 / 옵션 열기", expanded=False):
-                min_count = st.slider(
-                    "표시할 최소 인원 수",
-                    min_value=0,
-                    max_value=total_players,
-                    value=1,
-                    help="이 값보다 적은 인원인 항목은 숨겨집니다.",
-                )
-                section_options = ["나이대", "성별", "주손", "라켓", "NTRP", "MBTI"]
-                selected_sections = st.multiselect("보고 싶은 항목 선택", section_options, default=section_options)
-
-            dist_items = []
-            if "나이대" in selected_sections:
-                dist_items.append(("나이대별 인원 분포", age_counter))
-            if "성별" in selected_sections:
-                dist_items.append(("성별 인원 분포", gender_counter))
-            if "주손" in selected_sections:
-                dist_items.append(("주손(오른손/왼손) 분포", hand_counter))
-            if "라켓" in selected_sections:
-                dist_items.append(("라켓 브랜드별 분포", racket_counter))
-            if "NTRP" in selected_sections:
-                dist_items.append(("NTRP 레벨별 분포", ntrp_counter))
-            if "MBTI" in selected_sections:
-                dist_items.append(("MBTI 분포", mbti_counter))
-
-            if mobile_mode:
-                for title, counter in dist_items:
-                    render_distribution_section(title, counter, total_players, min_count)
-                    st.markdown("---")
-            else:
-                for i in range(0, len(dist_items), 2):
-                    col1, col2 = st.columns(2)
-                    title1, counter1 = dist_items[i]
-                    with col1:
-                        render_distribution_section(title1, counter1, total_players, min_count)
-                    if i + 1 < len(dist_items):
-                        title2, counter2 = dist_items[i + 1]
-                        with col2:
-                            render_distribution_section(title2, counter2, total_players, min_count)
-
-    # -----------------------------------------------------
-    # 1) 선수 정보 수정 / 삭제
-    # -----------------------------------------------------
-    st.markdown("---")
-    st.subheader("선수 정보 수정 / 삭제")
-
-    names = sorted([p["name"] for p in roster if p.get("name")], key=lambda x: x)
-    if names:
-        sel_edit = st.selectbox("수정할 선수 선택", ["선택 안함"] + names)
-
-        if sel_edit != "선택 안함":
-            player = next(p for p in roster if p["name"] == sel_edit)
-
-            c1, c2 = st.columns(2)
-            with c1:
-                e_name = st.text_input("이름 (수정)", value=player["name"])
-                e_age = st.selectbox("나이대 (수정)", AGE_OPTIONS, index=get_index_or_default(AGE_OPTIONS, player.get("age_group", "비밀"), 0))
-                e_racket = st.selectbox("라켓 (수정)", RACKET_OPTIONS, index=get_index_or_default(RACKET_OPTIONS, player.get("racket", "기타"), 0))
-
-                # ✅ 저장값은 미배정 / 표시는 미배정(게스트)
-                cur_group = player.get("group", "미배정")
-                cur_group_ui = "미배정(게스트)" if str(cur_group).startswith("미배정") else cur_group
-                e_group_ui = st.selectbox("실력조 (수정)", GROUP_OPTIONS, index=get_index_or_default(GROUP_OPTIONS, cur_group_ui, 0))
-
-            with c2:
-                e_gender = st.selectbox("성별 (수정)", GENDER_OPTIONS, index=get_index_or_default(GENDER_OPTIONS, player.get("gender", "남"), 0), key=f"edit_gender_{sel_edit}")
-                e_hand = st.selectbox("주손 (수정)", HAND_OPTIONS, index=get_index_or_default(HAND_OPTIONS, player.get("hand", "오른손"), 0), key=f"edit_hand_{sel_edit}")
-
-                cur_ntrp_str = _format_ntrp_safe(player.get("ntrp"))
-                e_ntrp_str = st.selectbox("NTRP (수정)", NTRP_OPTIONS, index=get_index_or_default(NTRP_OPTIONS, cur_ntrp_str, 0), key=f"edit_ntrp_{sel_edit}")
-
-                cur_mbti = player.get("mbti", "모름")
-                e_mbti = st.selectbox("MBTI (수정)", MBTI_OPTIONS, index=get_index_or_default(MBTI_OPTIONS, cur_mbti, 0), key=f"edit_mbti_{sel_edit}")
-
-            cb1, cb2 = st.columns(2)
-
-            with cb1:
-                st.markdown('<div class="main-primary-btn">', unsafe_allow_html=True)
-                if st.button("수정 저장", use_container_width=True, key="btn_edit_save"):
-                    ntrp_val = None
-                    if e_ntrp_str != "모름":
-                        try:
-                            ntrp_val = float(e_ntrp_str)
-                        except Exception:
-                            ntrp_val = None
-
-                    e_group = "미배정" if str(e_group_ui).startswith("미배정") else e_group_ui
-
-                    player.update(
-                        {
-                            "name": e_name.strip(),
-                            "age_group": e_age,
-                            "racket": e_racket,
-                            "group": e_group,
-                            "gender": e_gender,
-                            "hand": e_hand,
-                            "ntrp": ntrp_val,
-                            "mbti": e_mbti,
-                        }
-                    )
-
-                    save_players(roster)
-                    st.session_state.roster = roster
-                    st.success("선수 정보가 수정되었습니다!")
-                    st.rerun()
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            with cb2:
-                st.markdown('<div class="main-danger-btn">', unsafe_allow_html=True)
-                if st.button("🗑 이 선수 삭제", use_container_width=True, key="btn_edit_del"):
-                    st.session_state.pending_delete = sel_edit
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            if st.session_state.pending_delete:
-                st.markdown("---")
-                st.warning(
-                    f"⚠️ 정말 **{st.session_state.pending_delete}** 선수를 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다."
-                )
-
-                cc1, cc2 = st.columns(2)
-                with cc1:
-                    if st.button("❌ 취소", use_container_width=True, key="cancel_delete"):
-                        st.session_state.pending_delete = None
-                        st.rerun()
-
-                with cc2:
-                    if st.button("🗑 네, 삭제합니다", use_container_width=True, key="confirm_delete"):
-                        target = st.session_state.pending_delete
-                        st.session_state.roster = [p for p in roster if p["name"] != target]
-                        roster = st.session_state.roster
-                        save_players(roster)
-                        st.session_state.pending_delete = None
-                        st.success(f"'{target}' 선수 삭제 완료!")
-                        st.rerun()
-    else:
-        st.info("수정할 선수가 없습니다.")
-
-    # -----------------------------------------------------
-    # 2) 새 선수 추가
-    # -----------------------------------------------------
-    st.markdown("---")
-    with st.expander("➕ 새 선수 추가", expanded=False):
-        c1, c2 = st.columns(2)
-        with c1:
-            new_name = st.text_input("이름", key="new_name")
-            new_age = st.selectbox("나이대", AGE_OPTIONS, index=0, key="new_age")
-            new_racket = st.selectbox("라켓", RACKET_OPTIONS, index=0, key="new_racket")
-            new_group_ui = st.selectbox("조별 (A/B조)", GROUP_OPTIONS, index=0, key="new_group")
-
-        with c2:
-            new_gender = st.selectbox("성별", GENDER_OPTIONS, index=0, key="new_gender")
-            new_hand = st.selectbox("주로 쓰는 손", HAND_OPTIONS, index=0, key="new_hand")
-            ntrp_str = st.selectbox("NTRP (실력)", NTRP_OPTIONS, index=0, key="new_ntrp")
-            new_mbti = st.selectbox("MBTI", MBTI_OPTIONS, index=0, key="new_mbti")
-
+    c1, c2 = st.columns(2)
+    with c1:
         st.markdown('<div class="main-primary-btn">', unsafe_allow_html=True)
-        add_clicked = st.button("선수 추가", use_container_width=True, key="btn_add_player")
+        if st.button("명단 저장", key="btn_save_roster", use_container_width=True):
+            # 빈 이름 제거
+            rows = edited.to_dict(orient="records")
+            clean = []
+            for r in rows:
+                nm = (r.get("name") or "").strip()
+                if not nm:
+                    continue
+                r["name"] = nm
+                # 기본값들
+                r["gender"] = r.get("gender") or "남"
+                r["group"] = r.get("group") or "미배정"
+                r["ntrp"] = r.get("ntrp") or "모름"
+                r["age_group"] = r.get("age_group") or "비밀"
+                r["racket"] = r.get("racket") or "모름"
+                r["hand"] = r.get("hand") or "오른손"
+                r["mbti"] = (r.get("mbti") or "모름").upper()
+                clean.append(r)
+
+            st.session_state.roster = clean
+            save_players(clean)
+            st.success("선수 명단을 저장했습니다.")
+            safe_rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-        if add_clicked:
-            if not new_name.strip():
-                st.error("이름을 입력해 주세요.")
-            elif any(p["name"] == new_name for p in roster):
-                st.error("이미 같은 이름의 선수가 있습니다.")
-            else:
-                ntrp_val = None
-                if ntrp_str != "모름":
-                    try:
-                        ntrp_val = float(ntrp_str)
-                    except Exception:
-                        ntrp_val = None
+    with c2:
+        st.markdown('<div class="main-danger-btn">', unsafe_allow_html=True)
+        if st.button("세션 데이터 저장(강제)", key="btn_force_save_sessions", use_container_width=True):
+            save_sessions(st.session_state.sessions)
+            st.success("sessions.json 저장 완료")
+        st.markdown("</div>", unsafe_allow_html=True)
 
-                new_group = "미배정" if str(new_group_ui).startswith("미배정") else new_group_ui
 
-                player = {
-                    "name": new_name.strip(),
-                    "gender": new_gender,
-                    "hand": new_hand,
-                    "age_group": new_age,
-                    "racket": new_racket,
-                    "group": new_group,
-                    "ntrp": ntrp_val,
-                    "mbti": new_mbti,
-                }
-                roster.append(player)
-                st.session_state.roster = roster
-                save_players(roster)
-                st.success(f"'{new_name}' 선수 추가 완료!")
-                st.rerun()
+# roster/sessions 재동기화
+roster = st.session_state.roster
+sessions = st.session_state.sessions
+roster_by_name = {p.get("name"): p for p in roster if p.get("name")}
 
 
 # =========================================================
-# (TAB1 이후에 쓰일 수 있어서) 아래 유틸은 원래대로 유지
-# - 너가 TAB2~TAB5 붙일 때 깨지면 안 되니까 삭제 안 함
+# TAB2) 오늘 경기 세션  (✅ 사용자가 준 코드 중심)
 # =========================================================
-def _ui_to_doubles_mode(mode_label: str) -> str:
-    if mode_label == "혼합복식 (남+여 짝)":
-        return "혼합복식"
-    if mode_label == "동성복식 (남+남 / 여+여)":
-        return "동성복식"
-    if mode_label == "랜덤 복식":
-        return "랜덤복식"
-    return "랜덤복식"
-
-
-
 with tab2:
     section_card("오늘 경기 세션", "🎾")
 
     # =========================================================
-    # [TAB2] 공용: rerun
-    # =========================================================
-    def safe_rerun():
-        if hasattr(st, "rerun"):
-            st.rerun()
-        elif hasattr(st, "experimental_rerun"):
-            st.experimental_rerun()
-
-    # =========================================================
     # [TAB2] 수동 배정 유틸 (중복 방지 + 빈칸만 채우기)
     # =========================================================
-
-
     def _ensure_manual_prefill():
         if "_manual_prefill" not in st.session_state or not isinstance(st.session_state.get("_manual_prefill"), dict):
             st.session_state["_manual_prefill"] = {}
         if "_manual_prefill_used" not in st.session_state:
             st.session_state["_manual_prefill_used"] = False
-    
 
-    
     def _set_manual_prefill(plan: dict):
         _ensure_manual_prefill()
         st.session_state["_manual_prefill"].update(plan)
         st.session_state["_manual_prefill_used"] = True
-
-
 
     def _manual_key(r: int, c: int, pos: int, gtype: str) -> str:
         gt = "D" if gtype == "복식" else "S"
@@ -1352,6 +910,9 @@ with tab2:
                     keys.append(_manual_key(r, c, pos, gtype))
         return keys
 
+    def _get_manual_value(k: str) -> str:
+        return st.session_state.get(k, "선택")
+
     def _round_used_set(r: int, court_count: int, gtype: str):
         used = set()
         for k in _manual_all_keys_for_round(r, court_count, gtype):
@@ -1359,8 +920,6 @@ with tab2:
             if v and v != "선택":
                 used.add(v)
         return used
-
-
 
     def _make_on_change_validator(r: int, key: str, court_count: int, gtype: str):
         def _cb():
@@ -1381,16 +940,6 @@ with tab2:
 
         return _cb
 
-
-    def _consume_manual_pending_to_prefill():
-        pending = st.session_state.pop("_manual_pending_set", None)
-        if isinstance(pending, dict) and pending:
-            _set_manual_prefill(pending)  # ✅ st.session_state[key] 직접 세팅 금지
-
-
-    def _get_manual_value(k: str) -> str:
-        return st.session_state.get(k, "선택")
-
     def _apply_manual_pending():
         pending = st.session_state.pop("_manual_pending_set", None)
         if isinstance(pending, dict) and pending:
@@ -1399,8 +948,6 @@ with tab2:
                 if v and v != "선택":
                     st.session_state[k] = v
                     st.session_state[f"_prev_{k}"] = v
-
-
 
     def _court_group_tag(view_mode: str, court_index: int):
         if view_mode == "조별 분리 (A/B조)":
@@ -1416,50 +963,19 @@ with tab2:
             return [p for p in players_selected if roster_by_name.get(p, {}).get("group") == "B조"]
         return players_selected
 
-    def _gender_of(name: str) -> str:
-        return roster_by_name.get(name, {}).get("gender", "남")
-
-    def _ntrp_of(name: str):
-        v = roster_by_name.get(name, {}).get("ntrp", None)
-        try:
-            return None if v in (None, "", "모름") else float(v)
-        except Exception:
-            return None
-
-    def _pick_by_ntrp_closest(cands, target_ntrp):
-        if not cands:
-            return None
-        if target_ntrp is None:
-            return random.choice(cands)
-
-        scored = []
-        for p in cands:
-            pn = _ntrp_of(p)
-            if pn is None:
-                scored.append((9999.0, random.random(), p))
-            else:
-                scored.append((abs(pn - target_ntrp), random.random(), p))
-        scored.sort(key=lambda x: (x[0], x[1]))
-        return scored[0][2] if scored else random.choice(cands)
-
-
-
     def _build_filtered_options_for_key(r: int, k: str, pool, court_count: int, gtype: str):
         current = _get_manual_value(k)
-    
+
         used = _round_used_set(r, court_count, gtype)
         if current and current != "선택":
             used = set(used) - {current}
-    
+
         opts = ["선택"] + [p for p in sorted(pool) if p not in used]
         if current and current != "선택" and current not in opts:
             opts.insert(1, current)
-    
+
         idx = opts.index(current) if current in opts else 0
         return opts, idx
-
-
-
 
     def _fill_round_plan(
         r: int,
@@ -1471,55 +987,63 @@ with tab2:
         ntrp_on: bool,
     ):
         plan = {}
-    
+
         keys_round = _manual_all_keys_for_round(r, court_count, gtype)
         fixed = {k: _get_manual_value(k) for k in keys_round}
         used = {v for v in fixed.values() if v and v != "선택"}
-    
+
         for c in range(1, int(court_count) + 1):
             grp_tag = _court_group_tag(view_mode, c)
             pool = _pool_by_group(players_selected, grp_tag)
-    
+
             if gtype == "단식":
                 k1 = _manual_key(r, c, 1, gtype)
                 k2 = _manual_key(r, c, 2, gtype)
                 v1 = fixed.get(k1, "선택")
                 v2 = fixed.get(k2, "선택")
-    
+
                 if v1 != "선택" and v2 != "선택":
                     continue
-    
+
                 avail = [p for p in pool if p not in used]
-    
+
                 if v1 != "선택" and v2 == "선택":
                     cand = avail
                     if gender_mode == "동성":
-                        g1 = _gender_of(v1)
-                        cand = [p for p in cand if _gender_of(p) == g1]
-                    pick = _pick_by_ntrp_closest(cand, _ntrp_of(v1)) if ntrp_on else (random.choice(cand) if cand else None)
+                        g1 = _gender_of(v1, roster_by_name)
+                        cand = [p for p in cand if _gender_of(p, roster_by_name) == g1]
+                    pick = (
+                        _pick_by_ntrp_closest(cand, _ntrp_of(v1, roster_by_name), roster_by_name)
+                        if ntrp_on
+                        else (random.choice(cand) if cand else None)
+                    )
                     if pick:
                         plan[k2] = pick
                         used.add(pick)
                     continue
-    
+
                 if v1 == "선택" and v2 != "선택":
                     cand = avail
                     if gender_mode == "동성":
-                        g2 = _gender_of(v2)
-                        cand = [p for p in cand if _gender_of(p) == g2]
-                    pick = _pick_by_ntrp_closest(cand, _ntrp_of(v2)) if ntrp_on else (random.choice(cand) if cand else None)
+                        g2 = _gender_of(v2, roster_by_name)
+                        cand = [p for p in cand if _gender_of(p, roster_by_name) == g2]
+                    pick = (
+                        _pick_by_ntrp_closest(cand, _ntrp_of(v2, roster_by_name), roster_by_name)
+                        if ntrp_on
+                        else (random.choice(cand) if cand else None)
+                    )
                     if pick:
                         plan[k1] = pick
                         used.add(pick)
                     continue
-    
+
                 if v1 == "선택" and v2 == "선택":
                     cand = avail
                     if len(cand) >= 2:
                         if ntrp_on:
                             a = random.choice(cand)
                             cand2 = [x for x in cand if x != a]
-                            b = _pick_by_ntrp_closest(cand2, _ntrp_of(a))
+                            b = _pick_by_ntrp_closest(cand2, _ntrp_of(a, roster_by_name), roster_by_name)
                             if b:
                                 plan[k1], plan[k2] = a, b
                                 used.update([a, b])
@@ -1528,68 +1052,68 @@ with tab2:
                             plan[k1], plan[k2] = a, b
                             used.update([a, b])
                 continue
-    
+
             # ---------------- 복식 ----------------
             ks = [_manual_key(r, c, i, gtype) for i in (1, 2, 3, 4)]
             vs = [fixed.get(k, "선택") for k in ks]
             empty_keys = [k for k, v in zip(ks, vs) if v == "선택"]
             if not empty_keys:
                 continue
-    
+
             already = [v for v in vs if v != "선택"]
             avail = [p for p in pool if p not in used]
-            men = [p for p in avail if _gender_of(p) == "남"]
-            women = [p for p in avail if _gender_of(p) == "여"]
-    
+            men = [p for p in avail if _gender_of(p, roster_by_name) == "남"]
+            women = [p for p in avail if _gender_of(p, roster_by_name) == "여"]
+
             need = len(empty_keys)
             picks = []
-    
+
             if gender_mode == "혼합":
-                already_m = sum(1 for x in already if _gender_of(x) == "남")
-                already_w = sum(1 for x in already if _gender_of(x) == "여")
-    
+                already_m = sum(1 for x in already if _gender_of(x, roster_by_name) == "남")
+                already_w = sum(1 for x in already if _gender_of(x, roster_by_name) == "여")
+
                 while len(picks) < need:
-                    want_m = (already_m + sum(1 for x in picks if _gender_of(x) == "남")) < 2
-                    want_w = (already_w + sum(1 for x in picks if _gender_of(x) == "여")) < 2
-    
+                    want_m = (already_m + sum(1 for x in picks if _gender_of(x, roster_by_name) == "남")) < 2
+                    want_w = (already_w + sum(1 for x in picks if _gender_of(x, roster_by_name) == "여")) < 2
+
                     if want_m and men:
-                        pick = random.choice(men) if not ntrp_on else _pick_by_ntrp_closest(men, None)
+                        pick = random.choice(men) if not ntrp_on else _pick_by_ntrp_closest(men, None, roster_by_name)
                         men.remove(pick)
                     elif want_w and women:
-                        pick = random.choice(women) if not ntrp_on else _pick_by_ntrp_closest(women, None)
+                        pick = random.choice(women) if not ntrp_on else _pick_by_ntrp_closest(women, None, roster_by_name)
                         women.remove(pick)
                     else:
                         rest = men + women
                         if not rest:
                             break
-                        pick = random.choice(rest) if not ntrp_on else _pick_by_ntrp_closest(rest, None)
+                        pick = random.choice(rest) if not ntrp_on else _pick_by_ntrp_closest(rest, None, roster_by_name)
                         if pick in men:
                             men.remove(pick)
                         else:
                             women.remove(pick)
-    
+
                     picks.append(pick)
-    
+
             elif gender_mode == "동성":
-                already_gender = _gender_of(already[0]) if already else None
+                already_gender = _gender_of(already[0], roster_by_name) if already else None
                 cand = men if already_gender == "남" else women if already_gender == "여" else (men if len(men) >= need else women)
                 if len(cand) >= need:
                     picks = random.sample(cand, need)
-    
+
             else:
                 rest = men + women
                 if len(rest) >= need:
                     picks = random.sample(rest, need)
-    
+
             for k, p in zip(empty_keys, picks):
                 plan[k] = p
                 used.add(p)
-    
-        # ✅ 기존 값은 유지 (굳이 안 넣어도 되지만, 안전하게 같이 포함)
+
+        # ✅ 기존 값은 유지
         for k, v in fixed.items():
             if v and v != "선택":
                 plan.setdefault(k, v)
-    
+
         return plan
 
     # =========================================================
