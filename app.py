@@ -3892,7 +3892,7 @@ with tab2:
         st.session_state._injected_guest_names = []
 
     if guest_enabled:
-	_apply_guest_clear_pending()
+        _apply_guest_clear_pending()
         st.markdown(
             """
             <div style="
