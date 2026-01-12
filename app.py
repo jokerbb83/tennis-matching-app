@@ -3817,7 +3817,20 @@ with tab2:
     guest_list = st.session_state.guest_list
     names_all_members = [p["name"] for p in roster]
 
+
+    def _backup_today_players():
+        cur = st.session_state.get("ms_today_players", [])
+        if isinstance(cur, list):
+            st.session_state["_ms_today_players_backup"] = cur.copy()
+
+    def _restore_today_players(valid_options):
+        if "_ms_today_players_backup" in st.session_state:
+            bk = st.session_state.pop("_ms_today_players_backup", [])
+            valid = set(valid_options)
+            st.session_state["ms_today_players"] = [x for x in bk if x in valid]
+
     def _on_guest_toggle():
+        _backup_today_players()
         if st.session_state.get("chk_guest_mode", False):
             st.session_state["chk_special_match"] = False
             st.session_state.special_match = False
@@ -3826,12 +3839,14 @@ with tab2:
             st.session_state.guest_mode = False
 
     def _on_special_toggle():
+        _backup_today_players()
         if st.session_state.get("chk_special_match", False):
             st.session_state["chk_guest_mode"] = False
             st.session_state.guest_mode = False
             st.session_state.special_match = True
         else:
             st.session_state.special_match = False
+
 
     col_ms, col_sp = st.columns([3, 2])
     with col_sp:
@@ -3926,6 +3941,7 @@ with tab2:
             add_guest_clicked = st.button("게스트 추가", use_container_width=True, key="btn_add_guest_once")
 
         if add_guest_clicked:
+            _backup_today_players()
             name_clean = (guest_name or "").strip()
             if not name_clean:
                 st.warning("게스트 이름을 입력해 주세요.")
@@ -3964,6 +3980,7 @@ with tab2:
                     )
                 with c3:
                     if st.button("삭제", use_container_width=True, key=f"btn_del_guest_{i}"):
+                        _backup_today_players()
                         guest_list.pop(i - 1)
                         st.session_state.guest_list = guest_list
                         safe_rerun()
@@ -3974,11 +3991,15 @@ with tab2:
     names_all = names_all_members + guest_names
     names_sorted = sorted(names_all, key=lambda n: n)
 
+    # ✅ 여기서 복원(멀티셀렉트 생성 전에!)
+    _restore_today_players(names_sorted)
+
     # ✅ 크래시 방지: 현재 선택값이 옵션에서 빠졌으면 자동 제거
     _sanitize_multiselect_value("ms_today_players", names_sorted)
 
     with col_ms:
-        sel_players = st.multiselect("오늘 참가 선수들", names_sorted, default=[], key="ms_today_players")
+        # ❗ default=[] 빼고 key만 사용
+        sel_players = st.multiselect("오늘 참가 선수들", names_sorted, key="ms_today_players")
 
     if guest_enabled:
         players_for_today = sorted(set(sel_players) | set(guest_names), key=lambda n: n)
