@@ -2467,6 +2467,23 @@ st.markdown(MOBILE_CSS, unsafe_allow_html=True)
 
 if "roster" not in st.session_state:
     st.session_state.roster = load_players()
+
+# ✅ 항상 roster 변수로 꺼내서 사용
+roster = st.session_state.roster
+
+# ✅ "미배정(게스트)" 같은 값들을 영구적으로 '미배정'으로 정리
+changed = False
+for p in roster:
+    g = str(p.get("group", "미배정"))
+    if g.startswith("미배정") and g != "미배정":
+        p["group"] = "미배정"
+        changed = True
+
+# ✅ 바뀐 게 있으면 저장까지(영구 반영)
+if changed:
+    save_players(roster)
+    st.session_state.roster = roster
+
 if "sessions" not in st.session_state:
     st.session_state.sessions = load_sessions()
 
@@ -2474,6 +2491,7 @@ if "current_order" not in st.session_state:
     st.session_state.current_order = []
 if "shuffle_count" not in st.session_state:
     st.session_state.shuffle_count = 0
+
 
 
 import pandas as pd
@@ -2810,8 +2828,6 @@ with tab1:
 
         roster_by_name = {p["name"]: p for p in roster}
 
-        roster_by_name = {p["name"]: p for p in roster}
-
         # ✅ "미배정(게스트)" 같은 변형들도 '미배정'으로 묶어서 표시되게
         col_grp = "실력조" if not mobile_mode else "조"
         if col_grp in df_disp.columns:
@@ -2825,6 +2841,7 @@ with tab1:
             col_grp = "실력조" if not mobile_mode else "조"
             if col_grp not in df_disp.columns:
                 continue
+
 
         for grp in group_order:
             sub = df_disp[df_disp[col_grp] == grp].copy()
