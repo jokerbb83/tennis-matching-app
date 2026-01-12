@@ -3926,9 +3926,6 @@ with tab2:
             add_guest_clicked = st.button("게스트 추가", use_container_width=True, key="btn_add_guest_once")
 
         if add_guest_clicked:
-            # ✅ 현재 선택된 참가자(멀티셀렉트) 보호
-            _sel_backup = list(st.session_state.get("ms_today_players", []))
-
             name_clean = (guest_name or "").strip()
             if not name_clean:
                 st.warning("게스트 이름을 입력해 주세요.")
@@ -3942,15 +3939,10 @@ with tab2:
                     st.session_state.guest_list = guest_list
                     st.session_state["guest_add_msg"] = f"게스트 '{name_clean}' 추가되었습니다."
 
-                    # ✅ 입력칸 초기화는 다음 rerun에서 위젯 렌더 전에 처리
+                    # ✅ 입력칸만 초기화 (pending + rerun)
                     st.session_state["_guest_clear_pending"] = True
+                    safe_rerun()
 
-            # ✅ 멀티셀렉트 선택값 복원 (초기화 방지)
-            st.session_state["ms_today_players"] = _sel_backup
-
-            # ✅ 여기서는 rerun 한 번 더 돌려서 입력칸 초기화 반영
-            if st.session_state.get("_guest_clear_pending", False):
-                safe_rerun()
 
 
 
@@ -3972,16 +3964,10 @@ with tab2:
                     )
                 with c3:
                     if st.button("삭제", use_container_width=True, key=f"btn_del_guest_{i}"):
-                        # ✅ 현재 선택된 참가자(멀티셀렉트) 보호
-                        _sel_backup = list(st.session_state.get("ms_today_players", []))
-
                         guest_list.pop(i - 1)
                         st.session_state.guest_list = guest_list
+                        safe_rerun()
 
-                        # ✅ 멀티셀렉트 선택값 복원
-                        st.session_state["ms_today_players"] = _sel_backup
-
-                        # ❌ safe_rerun() 하지 마
 
 
     guest_names = [g["name"] for g in guest_list] if guest_enabled else []
