@@ -5525,8 +5525,8 @@ with tab3:
                     if summary_view_mode == "대진별 보기":
 
 
-                        # =========================================================
-                        # ✅ [대진표 캡처 + 텍스트 복사용] 준비
+                                                # =========================================================
+                        # ✅ [대진표 캡처 + 텍스트 복사용] 준비 (24칸 들여쓰기)
                         #   - 대진별 보기에서만 동작
                         # =========================================================
                         import re, json
@@ -5553,14 +5553,14 @@ with tab3:
                             if not schedule_list:
                                 return ""
 
-                            # 코트 개수 추정 (코트 번호가 1..N이면 max가 코트 수로 가장 안전)
+                            # 코트 개수 추정(안전: 유니크 코트 수)
                             courts = []
                             for item in schedule_list:
                                 try:
                                     courts.append(int(item[3]))
                                 except Exception:
                                     pass
-                            court_count = max(courts) if courts else 1
+                            court_count = len(sorted(set(courts))) if courts else 1
                             if court_count <= 0:
                                 court_count = 1
 
@@ -5588,9 +5588,8 @@ with tab3:
                         safe_date_key = re.sub(r"[^0-9a-zA-Z_]+", "_", str(sel_date))
                         capture_id = f"tab3_fixture_capture_{safe_date_key}"
 
-                        # ✅ 여기부터 캡처할 영역 시작 (대진별 표 전체를 감싸는 div)
-                        st.markdown(f'<div id="{capture_id}">', unsafe_allow_html=True)
-
+                        # ✅ 캡처 범위 마커 (start/end)
+                        st.markdown(f'<div id="{capture_id}__start"></div>', unsafe_allow_html=True)
 
                         if view_mode_scores == "조별 보기 (A/B조)":
                             if games_A_sum:
@@ -5606,13 +5605,11 @@ with tab3:
                             all_games_sum = games_A_sum + games_B_sum + games_other_sum
                             render_score_summary_table(all_games_sum, roster_by_name)
 
-
-                        # ✅ 캡처 영역 끝
-                        st.markdown("</div>", unsafe_allow_html=True)
+                        st.markdown(f'<div id="{capture_id}__end"></div>', unsafe_allow_html=True)
 
                         # =========================================================
                         # ✅ [표 아래] JPEG 저장 + 텍스트 클립보드 복사 버튼
-                        #   - html2canvas를 parent(메인 페이지)에 로드해서 캡처 안정화
+                        #   - start/end 마커 사이 DOM을 복제해서 JPEG 캡처
                         # =========================================================
                         components.html(
                             f"""
@@ -5638,7 +5635,7 @@ with tab3:
                               const fileName = "대진표_" + {json.dumps(str(sel_date))}.replace(/[^0-9a-zA-Z_\\-]+/g, "_") + ".jpg";
                               const text = {json.dumps(fixture_text)};
 
-                              const msgEl = document.getElementById(capId + "__msg");
+                              const msgEl  = document.getElementById(capId + "__msg");
                               const btnSave = document.getElementById(capId + "__save");
                               const btnCopy = document.getElementById(capId + "__copy");
 
@@ -5680,19 +5677,65 @@ with tab3:
                                 btnSave.onclick = async function() {{
                                   try {{
                                     setMsg("이미지 생성중…");
+
                                     const pdoc = window.parent.document;
-                                    const target = pdoc.getElementById(capId);
-                                    if (!target) {{
-                                      setMsg("표를 찾지 못했어.");
+
+                                    const start = pdoc.getElementById(capId + "__start");
+                                    const end   = pdoc.getElementById(capId + "__end");
+                                    if (!start || !end) {{
+                                      setMsg("캡처 마커를 찾지 못했어.");
                                       return;
                                     }}
 
+                                    const startTop = start.closest('div[data-testid="stElementContainer"]')
+                                                  || start.closest('div.element-container')
+                                                  || start.parentElement;
+
+                                    const endTop   = end.closest('div[data-testid="stElementContainer"]')
+                                                  || end.closest('div.element-container')
+                                                  || end.parentElement;
+
+                                    let common = startTop ? startTop.parentElement : null;
+                                    while (common && endTop && !common.contains(endTop)) {{
+                                      common = common.parentElement;
+                                    }}
+                                    if (!common) {{
+                                      setMsg("캡처 범위(공통부모) 찾기 실패");
+                                      return;
+                                    }}
+
+                                    const kids = Array.from(common.children);
+                                    const si = kids.indexOf(startTop);
+                                    const ei = kids.indexOf(endTop);
+
+                                    if (si < 0 || ei < 0 || ei <= si) {{
+                                      setMsg("캡처 범위 인덱스 오류");
+                                      return;
+                                    }}
+
+                                    const wrapper = pdoc.createElement("div");
+                                    wrapper.style.position = "fixed";
+                                    wrapper.style.left = "-100000px";
+                                    wrapper.style.top = "0";
+                                    wrapper.style.background = "#ffffff";
+                                    wrapper.style.width = (common.clientWidth || 1200) + "px";
+                                    wrapper.style.padding = "0";
+                                    wrapper.style.margin = "0";
+
+                                    for (let i = si + 1; i < ei; i++) {{
+                                      wrapper.appendChild(kids[i].cloneNode(true));
+                                    }}
+
+                                    pdoc.body.appendChild(wrapper);
+
                                     const h2c = await ensureHtml2Canvas();
-                                    const canvas = await h2c(target, {{
+                                    const canvas = await h2c(wrapper, {{
                                       backgroundColor: "#ffffff",
                                       scale: 2,
                                       useCORS: true
                                     }});
+
+                                    wrapper.remove();
 
                                     const url = canvas.toDataURL("image/jpeg", 0.95);
                                     const a = pdoc.createElement("a");
@@ -5727,9 +5770,9 @@ with tab3:
                             height=90,
                         )
 
-                        # (선택) 실패 대비용 텍스트 미리보기
                         with st.expander("대진표 텍스트 미리보기/수동복사"):
                             st.text_area("대진표 텍스트", fixture_text, height=220)
+
 
 
 
