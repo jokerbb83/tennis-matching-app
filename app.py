@@ -2837,28 +2837,27 @@ with tab1:
 
             df_disp[col_grp] = df_disp[col_grp].apply(_norm_group)
 
-        for grp in ["A조", "B조", "미배정"]:
-            col_grp = "실력조" if not mobile_mode else "조"
-            if col_grp not in df_disp.columns:
-                continue
+            # ✅ 탭1 그룹 표시 순서 고정
+            group_order_tab1 = ["A조", "B조", "미배정"]
 
+            for grp in group_order_tab1:
+                sub = df_disp[df_disp[col_grp] == grp].copy()
 
-        for grp in group_order:
-            sub = df_disp[df_disp[col_grp] == grp].copy()
+                # ✅ 비어있어도 섹션은 보여주기
+                st.markdown(f"■ {grp}")
+                if sub.empty:
+                    st.caption("없음")
+                    st.markdown("<div style='height:0.4rem;'></div>", unsafe_allow_html=True)
+                    continue
 
-            # ✅ "미배정" 섹션은 비어있어도 제목은 보여주기(원하면)
-            st.markdown(f"■ {grp}")
-            if sub.empty:
-                st.caption("없음")
-                st.markdown("<div style='height:0.4rem;'></div>", unsafe_allow_html=True)
-                continue
-
-            styled_or_df = colorize_df_names_hybrid(
-                sub,
-                roster_by_name,
-                name_cols=["이름"],
-            )
-            smart_table_hybrid(styled_or_df)
+                styled_or_df = colorize_df_names_hybrid(
+                    sub,
+                    roster_by_name,
+                    name_cols=["이름"],
+                )
+                smart_table_hybrid(styled_or_df)
+        else:
+            st.warning("그룹(조) 컬럼을 찾지 못했어. 데이터 컬럼명을 확인해줘.")
 
 
     else:
