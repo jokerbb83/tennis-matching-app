@@ -5777,7 +5777,21 @@ with tab3:
 
 
 
+
+
                     else:
+                        # =========================================================
+                        # ✅ [개인별 보기] 캡처 마커 + 이미지 저장 버튼(only)
+                        # =========================================================
+                        import re, json
+                        import streamlit.components.v1 as components
+
+                        safe_date_key_p = re.sub(r"[^0-9a-zA-Z_]+", "_", str(sel_date))
+                        capture_id_p = f"tab3_personal_capture_{safe_date_key_p}"
+
+                        # ✅ 캡처 범위 시작 마커
+                        st.markdown(f'<div id="{capture_id_p}__start"></div>', unsafe_allow_html=True)
+
                         def render_player_score_table(title, per_dict):
                             if not per_dict:
                                 return
@@ -5803,6 +5817,7 @@ with tab3:
 
                             df_players.index.name = None
                             df_players.columns.name = None
+
                             def calc_wdl(values):
                                 w = d = l = 0
                                 for v in values:
@@ -5817,7 +5832,7 @@ with tab3:
                                         b = int(right)
                                     except ValueError:
                                         continue
-                            
+
                                     if a > b:
                                         w += 1
                                     elif a == b:
@@ -5825,16 +5840,12 @@ with tab3:
                                     else:
                                         l += 1
                                 return pd.Series([w, d, l], index=["승", "무", "패"])
-                            
+
                             game_cols = ["1게임", "2게임", "3게임", "4게임"]
                             df_players[["승", "무", "패"]] = df_players[game_cols].apply(calc_wdl, axis=1)
-                            
-                            # (원하면 컬럼 순서 바꾸기: 이름 다음에 승무패 나오게)
+
                             df_players = df_players[["이름", "승", "무", "패"] + game_cols]
 
-
-
-                            # 이긴 게임 / 진 게임 색
                             def highlight_win_loss(val):
                                 if not isinstance(val, str):
                                     return ""
@@ -5855,14 +5866,13 @@ with tab3:
                                 else:
                                     return ""
 
-                            game_cols = ["1게임", "2게임", "3게임", "4게임"]
-
                             sty_players = colorize_df_names(df_players, roster_by_name, ["이름"])
                             sty_players = sty_players.applymap(highlight_win_loss, subset=game_cols)
                             smart_table(sty_players)
 
-
-
+                        # =========================================================
+                        # ✅ 개인별 테이블 출력(기존 로직)
+                        # =========================================================
                         if view_mode_scores == "조별 보기 (A/B조)":
                             has_any = False
                             if per_player_A:
@@ -5881,6 +5891,135 @@ with tab3:
                                 st.info("개인별로 표시할 스코어가 없습니다.")
                             else:
                                 render_player_score_table("전체 개인별 스코어", per_player_all)
+
+                        # ✅ 캡처 범위 끝 마커
+                        st.markdown(f'<div id="{capture_id_p}__end"></div>', unsafe_allow_html=True)
+
+                        # =========================================================
+                        # ✅ [개인별 보기] 이미지 저장 버튼만 (JPEG)
+                        #   - start/end 사이 DOM을 복제해서 캡처
+                        # =========================================================
+                        components.html(
+                            f"""
+                            <div style="display:flex; gap:12px; margin-top:14px; align-items:center;">
+                              <button id="{capture_id_p}__save"
+                                style="flex:1; padding:10px 12px; border-radius:10px; border:1px solid rgba(0,0,0,0.15);
+                                       background:white; cursor:pointer; font-weight:700;">
+                                개인별 표 이미지 저장 (JPEG)
+                              </button>
+                              <span id="{capture_id_p}__msg" style="font-size:12px; opacity:0.7;"></span>
+                            </div>
+
+                            <script>
+                            (function() {{
+                              const capId = {json.dumps(capture_id_p)};
+                              const fileName = "개인별표_" + {json.dumps(str(sel_date))}.replace(/[^0-9a-zA-Z_\\-]+/g, "_") + ".jpg";
+
+                              const msgEl  = document.getElementById(capId + "__msg");
+                              const btnSave = document.getElementById(capId + "__save");
+
+                              function setMsg(m) {{
+                                if (msgEl) msgEl.textContent = m;
+                              }}
+
+                              function ensureHtml2Canvas() {{
+                                return new Promise((resolve, reject) => {{
+                                  const p = window.parent;
+                                  if (p && p.html2canvas) {{
+                                    resolve(p.html2canvas);
+                                    return;
+                                  }}
+                                  const ps = p.document.createElement("script");
+                                  ps.src = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
+                                  ps.onload = () => resolve(p.html2canvas);
+                                  ps.onerror = reject;
+                                  p.document.head.appendChild(ps);
+                                }});
+                              }}
+
+                              if (btnSave) {{
+                                btnSave.onclick = async function() {{
+                                  try {{
+                                    setMsg("이미지 생성중…");
+                                    const pdoc = window.parent.document;
+
+                                    const start = pdoc.getElementById(capId + "__start");
+                                    const end   = pdoc.getElementById(capId + "__end");
+                                    if (!start || !end) {{
+                                      setMsg("캡처 마커를 찾지 못했어.");
+                                      return;
+                                    }}
+
+                                    const startTop = start.closest('div[data-testid="stElementContainer"]')
+                                                  || start.closest('div.element-container')
+                                                  || start.parentElement;
+
+                                    const endTop   = end.closest('div[data-testid="stElementContainer"]')
+                                                  || end.closest('div.element-container')
+                                                  || end.parentElement;
+
+                                    let common = startTop ? startTop.parentElement : null;
+                                    while (common && endTop && !common.contains(endTop)) {{
+                                      common = common.parentElement;
+                                    }}
+                                    if (!common) {{
+                                      setMsg("캡처 범위(공통부모) 찾기 실패");
+                                      return;
+                                    }}
+
+                                    const kids = Array.from(common.children);
+                                    const si = kids.indexOf(startTop);
+                                    const ei = kids.indexOf(endTop);
+
+                                    if (si < 0 || ei < 0 || ei <= si) {{
+                                      setMsg("캡처 범위 인덱스 오류");
+                                      return;
+                                    }}
+
+                                    const wrapper = pdoc.createElement("div");
+                                    wrapper.style.position = "fixed";
+                                    wrapper.style.left = "-100000px";
+                                    wrapper.style.top = "0";
+                                    wrapper.style.background = "#ffffff";
+                                    wrapper.style.width = (common.clientWidth || 1200) + "px";
+                                    wrapper.style.padding = "0";
+                                    wrapper.style.margin = "0";
+
+                                    for (let i = si + 1; i < ei; i++) {{
+                                      wrapper.appendChild(kids[i].cloneNode(true));
+                                    }}
+
+                                    pdoc.body.appendChild(wrapper);
+
+                                    const h2c = await ensureHtml2Canvas();
+                                    const canvas = await h2c(wrapper, {{
+                                      backgroundColor: "#ffffff",
+                                      scale: 2,
+                                      useCORS: true
+                                    }});
+
+                                    wrapper.remove();
+
+                                    const url = canvas.toDataURL("image/jpeg", 0.95);
+                                    const a = pdoc.createElement("a");
+                                    a.href = url;
+                                    a.download = fileName;
+                                    pdoc.body.appendChild(a);
+                                    a.click();
+                                    a.remove();
+
+                                    setMsg("JPEG 저장 완료!");
+                                  }} catch (e) {{
+                                    console.log(e);
+                                    setMsg("저장 실패(콘솔 확인)");
+                                  }}
+                                }};
+                              }}
+                            }})();
+                            </script>
+                            """,
+                            height=80,
+                        )
         else:
             st.info("이 날짜에는 저장된 대진이 없습니다.")
 
