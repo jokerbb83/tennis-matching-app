@@ -5,7 +5,7 @@ import random
 import math
 from datetime import date
 from collections import defaultdict, Counter
-from collections import defaultdict
+
 
 import pandas as pd
 import streamlit as st
@@ -2759,6 +2759,7 @@ tab3, tab5, tab4, tab1, tab2 = st.tabs(
     ["📋 경기 기록 / 통계", "📆 월별 통계", "👤 개인별 통계", "🧾 선수 정보 관리", "🎾 오늘 경기 세션"]
 )
 
+
 with tab1:
     st.header("🧾 선수 정보 관리")
     st.subheader("등록된 선수 목록")
@@ -3163,6 +3164,8 @@ with tab1:
 
 
 
+import random
+from collections import defaultdict
 
 
 
@@ -6640,3 +6643,4 @@ with tab5:
                     """,
                     unsafe_allow_html=True,
                 )
+
