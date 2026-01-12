@@ -3924,9 +3924,17 @@ with tab2:
                     )
                 with c3:
                     if st.button("삭제", use_container_width=True, key=f"btn_del_guest_{i}"):
+                        # ✅ 현재 선택된 참가자(멀티셀렉트) 보호
+                        _sel_backup = list(st.session_state.get("ms_today_players", []))
+
                         guest_list.pop(i - 1)
                         st.session_state.guest_list = guest_list
-                        safe_rerun()
+
+                        # ✅ 멀티셀렉트 선택값 복원
+                        st.session_state["ms_today_players"] = _sel_backup
+
+                        # ❌ safe_rerun() 하지 마
+
 
     guest_names = [g["name"] for g in guest_list] if guest_enabled else []
     names_all = names_all_members + guest_names
