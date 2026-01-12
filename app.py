@@ -3419,259 +3419,256 @@ with tab2:
         elif hasattr(st, "experimental_rerun"):
             st.experimental_rerun()
 
-    # =========================================================
-    # [TAB2] 수동 배정 유틸 (중복 방지 + 빈칸만 채우기)
-    # =========================================================
-    def _ensure_manual_prefill():
-        if "_manual_prefill" not in st.session_state or not isinstance(st.session_state.get("_manual_prefill"), dict):
-            st.session_state["_manual_prefill"] = {}
-        if "_manual_prefill_used" not in st.session_state:
-            st.session_state["_manual_prefill_used"] = False
 
-    def _set_manual_prefill(plan: dict):
-        _ensure_manual_prefill()
-        st.session_state["_manual_prefill"].update(plan)
-        st.session_state["_manual_prefill_used"] = True
+# =========================================================
+# [TAB2] 수동 배정 유틸 (중복 방지 + 빈칸만 채우기)
+#   - 레이아웃/기능 동일, 내부 중복만 정리
+# =========================================================
 
-    def _manual_key(r: int, c: int, pos: int, gtype: str) -> str:
-        gt = "D" if gtype == "복식" else "S"
-        return f"man_{gt}_r{r}_c{c}_p{pos}"
+def _manual_key(r: int, c: int, pos: int, gtype: str) -> str:
+    gt = "D" if gtype == "복식" else "S"
+    return f"man_{gt}_r{r}_c{c}_p{pos}"
 
-    def _get_manual_value(k: str) -> str:
-        return st.session_state.get(k, "선택")
+def _get_manual_value(k: str) -> str:
+    return st.session_state.get(k, "선택")
 
-    def _manual_all_keys_for_round(r: int, court_count: int, gtype: str):
-        keys = []
-        if gtype == "단식":
-            for c in range(1, int(court_count) + 1):
-                keys.append(_manual_key(r, c, 1, gtype))
-                keys.append(_manual_key(r, c, 2, gtype))
-        else:
-            for c in range(1, int(court_count) + 1):
-                for pos in (1, 2, 3, 4):
-                    keys.append(_manual_key(r, c, pos, gtype))
-        return keys
+def _manual_all_keys_for_round(r: int, court_count: int, gtype: str):
+    keys = []
+    if gtype == "단식":
+        for c in range(1, int(court_count) + 1):
+            keys.append(_manual_key(r, c, 1, gtype))
+            keys.append(_manual_key(r, c, 2, gtype))
+    else:
+        for c in range(1, int(court_count) + 1):
+            for pos in (1, 2, 3, 4):
+                keys.append(_manual_key(r, c, pos, gtype))
+    return keys
 
-    def _round_used_set(r: int, court_count: int, gtype: str):
-        used = set()
+def _round_used_set(r: int, court_count: int, gtype: str):
+    used = set()
+    for k in _manual_all_keys_for_round(r, court_count, gtype):
+        v = _get_manual_value(k)
+        if v and v != "선택":
+            used.add(v)
+    return used
+
+def _make_on_change_validator(r: int, key: str, court_count: int, gtype: str):
+    def _cb():
+        cur = st.session_state.get(key, "선택")
+        if not cur or cur == "선택":
+            st.session_state[f"_prev_{key}"] = "선택"
+            return
+
+        # 같은 라운드 내 중복 선택 방지
         for k in _manual_all_keys_for_round(r, court_count, gtype):
-            v = _get_manual_value(k)
-            if v and v != "선택":
-                used.add(v)
-        return used
-
-    def _make_on_change_validator(r: int, key: str, court_count: int, gtype: str):
-        def _cb():
-            cur = st.session_state.get(key, "선택")
-            if not cur or cur == "선택":
-                st.session_state[f"_prev_{key}"] = "선택"
+            if k == key:
+                continue
+            if st.session_state.get(k, "선택") == cur:
+                st.session_state[key] = st.session_state.get(f"_prev_{key}", "선택")
                 return
 
-            # 같은 라운드 내 중복 선택 방지
-            for k in _manual_all_keys_for_round(r, court_count, gtype):
-                if k == key:
-                    continue
-                if st.session_state.get(k, "선택") == cur:
-                    st.session_state[key] = st.session_state.get(f"_prev_{key}", "선택")
-                    return
+        st.session_state[f"_prev_{key}"] = cur
+    return _cb
 
-            st.session_state[f"_prev_{key}"] = cur
+def _apply_manual_pending():
+    pending = st.session_state.pop("_manual_pending_set", None)
+    if isinstance(pending, dict) and pending:
+        # ✅ 위젯 생성 전에 state에 박아넣어야 화면에 반영됨
+        for k, v in pending.items():
+            if v and v != "선택":
+                st.session_state[k] = v
+                st.session_state[f"_prev_{k}"] = v
 
-        return _cb
+def _court_group_tag(view_mode: str, court_index: int):
+    if view_mode == "조별 분리 (A/B조)":
+        return "A" if (court_index % 2 == 1) else "B"
+    return None
 
-    def _apply_manual_pending():
-        pending = st.session_state.pop("_manual_pending_set", None)
-        if isinstance(pending, dict) and pending:
-            # ✅ 위젯 생성 전에 state에 박아넣어야 화면에 반영됨
-            for k, v in pending.items():
-                if v and v != "선택":
-                    st.session_state[k] = v
-                    st.session_state[f"_prev_{k}"] = v
+def _pool_by_group(players_selected, grp_tag):
+    if not grp_tag:
+        return players_selected
+    if grp_tag == "A":
+        return [p for p in players_selected if roster_by_name.get(p, {}).get("group") == "A조"]
+    if grp_tag == "B":
+        return [p for p in players_selected if roster_by_name.get(p, {}).get("group") == "B조"]
+    return players_selected
 
-    def _court_group_tag(view_mode: str, court_index: int):
-        if view_mode == "조별 분리 (A/B조)":
-            return "A" if (court_index % 2 == 1) else "B"
+def _gender_of(name: str) -> str:
+    return roster_by_name.get(name, {}).get("gender", "남")
+
+def _ntrp_of(name: str):
+    v = roster_by_name.get(name, {}).get("ntrp", None)
+    try:
+        return None if v in (None, "", "모름") else float(v)
+    except Exception:
         return None
 
-    def _pool_by_group(players_selected, grp_tag):
-        if not grp_tag:
-            return players_selected
-        if grp_tag == "A":
-            return [p for p in players_selected if roster_by_name.get(p, {}).get("group") == "A조"]
-        if grp_tag == "B":
-            return [p for p in players_selected if roster_by_name.get(p, {}).get("group") == "B조"]
-        return players_selected
+def _pick_by_ntrp_closest(cands, target_ntrp):
+    if not cands:
+        return None
+    if target_ntrp is None:
+        return random.choice(cands)
 
-    def _gender_of(name: str) -> str:
-        return roster_by_name.get(name, {}).get("gender", "남")
+    scored = []
+    for p in cands:
+        pn = _ntrp_of(p)
+        if pn is None:
+            scored.append((9999.0, random.random(), p))
+        else:
+            scored.append((abs(pn - target_ntrp), random.random(), p))
+    scored.sort(key=lambda x: (x[0], x[1]))
+    return scored[0][2] if scored else random.choice(cands)
 
-    def _ntrp_of(name: str):
-        v = roster_by_name.get(name, {}).get("ntrp", None)
-        try:
-            return None if v in (None, "", "모름") else float(v)
-        except Exception:
-            return None
+def _build_filtered_options_for_key(r: int, k: str, pool, court_count: int, gtype: str):
+    current = _get_manual_value(k)
 
-    def _pick_by_ntrp_closest(cands, target_ntrp):
-        if not cands:
-            return None
-        if target_ntrp is None:
-            return random.choice(cands)
+    used = _round_used_set(r, court_count, gtype)
+    if current and current != "선택":
+        used = set(used) - {current}
 
-        scored = []
-        for p in cands:
-            pn = _ntrp_of(p)
-            if pn is None:
-                scored.append((9999.0, random.random(), p))
-            else:
-                scored.append((abs(pn - target_ntrp), random.random(), p))
-        scored.sort(key=lambda x: (x[0], x[1]))
-        return scored[0][2] if scored else random.choice(cands)
+    opts = ["선택"] + [p for p in sorted(pool) if p not in used]
+    if current and current != "선택" and current not in opts:
+        opts.insert(1, current)
 
-    def _build_filtered_options_for_key(r: int, k: str, pool, court_count: int, gtype: str):
-        current = _get_manual_value(k)
+    idx = opts.index(current) if current in opts else 0
+    return opts, idx
 
-        used = _round_used_set(r, court_count, gtype)
-        if current and current != "선택":
-            used = set(used) - {current}
+def _manual_gender_to_mode(manual_gender_mode: str) -> str:
+    # UI 값("성별랜덤","동성","혼합") → 내부 값("랜덤","동성","혼합")
+    return "혼합" if manual_gender_mode == "혼합" else "동성" if manual_gender_mode == "동성" else "랜덤"
 
-        opts = ["선택"] + [p for p in sorted(pool) if p not in used]
-        if current and current != "선택" and current not in opts:
-            opts.insert(1, current)
+def _fill_round_plan(
+    r: int,
+    players_selected,
+    court_count: int,
+    gtype: str,
+    view_mode: str,
+    gender_mode: str,  # "랜덤" / "동성" / "혼합"
+    ntrp_on: bool,
+):
+    plan = {}
 
-        idx = opts.index(current) if current in opts else 0
-        return opts, idx
+    keys_round = _manual_all_keys_for_round(r, court_count, gtype)
+    fixed = {k: _get_manual_value(k) for k in keys_round}
+    used = {v for v in fixed.values() if v and v != "선택"}
 
-    def _fill_round_plan(
-        r: int,
-        players_selected,
-        court_count: int,
-        gtype: str,
-        view_mode: str,
-        gender_mode: str,  # "랜덤" / "동성" / "혼합"
-        ntrp_on: bool,
-    ):
-        plan = {}
+    for c in range(1, int(court_count) + 1):
+        grp_tag = _court_group_tag(view_mode, c)
+        pool = _pool_by_group(players_selected, grp_tag)
 
-        keys_round = _manual_all_keys_for_round(r, court_count, gtype)
-        fixed = {k: _get_manual_value(k) for k in keys_round}
-        used = {v for v in fixed.values() if v and v != "선택"}
+        if gtype == "단식":
+            k1 = _manual_key(r, c, 1, gtype)
+            k2 = _manual_key(r, c, 2, gtype)
+            v1 = fixed.get(k1, "선택")
+            v2 = fixed.get(k2, "선택")
 
-        for c in range(1, int(court_count) + 1):
-            grp_tag = _court_group_tag(view_mode, c)
-            pool = _pool_by_group(players_selected, grp_tag)
+            if v1 != "선택" and v2 != "선택":
+                continue
 
-            if gtype == "단식":
-                k1 = _manual_key(r, c, 1, gtype)
-                k2 = _manual_key(r, c, 2, gtype)
-                v1 = fixed.get(k1, "선택")
-                v2 = fixed.get(k2, "선택")
+            avail = [p for p in pool if p not in used]
 
-                if v1 != "선택" and v2 != "선택":
-                    continue
+            if v1 != "선택" and v2 == "선택":
+                cand = avail
+                if gender_mode == "동성":
+                    g1 = _gender_of(v1)
+                    cand = [p for p in cand if _gender_of(p) == g1]
+                pick = _pick_by_ntrp_closest(cand, _ntrp_of(v1)) if ntrp_on else (random.choice(cand) if cand else None)
+                if pick:
+                    plan[k2] = pick
+                    used.add(pick)
+                continue
 
-                avail = [p for p in pool if p not in used]
+            if v1 == "선택" and v2 != "선택":
+                cand = avail
+                if gender_mode == "동성":
+                    g2 = _gender_of(v2)
+                    cand = [p for p in cand if _gender_of(p) == g2]
+                pick = _pick_by_ntrp_closest(cand, _ntrp_of(v2)) if ntrp_on else (random.choice(cand) if cand else None)
+                if pick:
+                    plan[k1] = pick
+                    used.add(pick)
+                continue
 
-                if v1 != "선택" and v2 == "선택":
-                    cand = avail
-                    if gender_mode == "동성":
-                        g1 = _gender_of(v1)
-                        cand = [p for p in cand if _gender_of(p) == g1]
-                    pick = _pick_by_ntrp_closest(cand, _ntrp_of(v1)) if ntrp_on else (random.choice(cand) if cand else None)
-                    if pick:
-                        plan[k2] = pick
-                        used.add(pick)
-                    continue
-
-                if v1 == "선택" and v2 != "선택":
-                    cand = avail
-                    if gender_mode == "동성":
-                        g2 = _gender_of(v2)
-                        cand = [p for p in cand if _gender_of(p) == g2]
-                    pick = _pick_by_ntrp_closest(cand, _ntrp_of(v2)) if ntrp_on else (random.choice(cand) if cand else None)
-                    if pick:
-                        plan[k1] = pick
-                        used.add(pick)
-                    continue
-
-                if v1 == "선택" and v2 == "선택":
-                    cand = avail
-                    if len(cand) >= 2:
-                        if ntrp_on:
-                            a = random.choice(cand)
-                            cand2 = [x for x in cand if x != a]
-                            b = _pick_by_ntrp_closest(cand2, _ntrp_of(a))
-                            if b:
-                                plan[k1], plan[k2] = a, b
-                                used.update([a, b])
-                        else:
-                            a, b = random.sample(cand, 2)
+            if v1 == "선택" and v2 == "선택":
+                cand = avail
+                if len(cand) >= 2:
+                    if ntrp_on:
+                        a = random.choice(cand)
+                        cand2 = [x for x in cand if x != a]
+                        b = _pick_by_ntrp_closest(cand2, _ntrp_of(a))
+                        if b:
                             plan[k1], plan[k2] = a, b
                             used.update([a, b])
-                continue
-
-            # ---------------- 복식 ----------------
-            ks = [_manual_key(r, c, i, gtype) for i in (1, 2, 3, 4)]
-            vs = [fixed.get(k, "선택") for k in ks]
-            empty_keys = [k for k, v in zip(ks, vs) if v == "선택"]
-            if not empty_keys:
-                continue
-
-            already = [v for v in vs if v != "선택"]
-            avail = [p for p in pool if p not in used]
-            men = [p for p in avail if _gender_of(p) == "남"]
-            women = [p for p in avail if _gender_of(p) == "여"]
-
-            need = len(empty_keys)
-            picks = []
-
-            if gender_mode == "혼합":
-                already_m = sum(1 for x in already if _gender_of(x) == "남")
-                already_w = sum(1 for x in already if _gender_of(x) == "여")
-
-                while len(picks) < need:
-                    want_m = (already_m + sum(1 for x in picks if _gender_of(x) == "남")) < 2
-                    want_w = (already_w + sum(1 for x in picks if _gender_of(x) == "여")) < 2
-
-                    if want_m and men:
-                        pick = random.choice(men) if not ntrp_on else _pick_by_ntrp_closest(men, None)
-                        men.remove(pick)
-                    elif want_w and women:
-                        pick = random.choice(women) if not ntrp_on else _pick_by_ntrp_closest(women, None)
-                        women.remove(pick)
                     else:
-                        rest = men + women
-                        if not rest:
-                            break
-                        pick = random.choice(rest) if not ntrp_on else _pick_by_ntrp_closest(rest, None)
-                        if pick in men:
-                            men.remove(pick)
-                        else:
-                            women.remove(pick)
+                        a, b = random.sample(cand, 2)
+                        plan[k1], plan[k2] = a, b
+                        used.update([a, b])
+            continue
 
-                    picks.append(pick)
+        # ---------------- 복식 ----------------
+        ks = [_manual_key(r, c, i, gtype) for i in (1, 2, 3, 4)]
+        vs = [fixed.get(k, "선택") for k in ks]
+        empty_keys = [k for k, v in zip(ks, vs) if v == "선택"]
+        if not empty_keys:
+            continue
 
-            elif gender_mode == "동성":
-                already_gender = _gender_of(already[0]) if already else None
-                cand = men if already_gender == "남" else women if already_gender == "여" else (men if len(men) >= need else women)
-                if len(cand) >= need:
-                    picks = random.sample(cand, need)
+        already = [v for v in vs if v != "선택"]
+        avail = [p for p in pool if p not in used]
+        men = [p for p in avail if _gender_of(p) == "남"]
+        women = [p for p in avail if _gender_of(p) == "여"]
 
-            else:
-                rest = men + women
-                if len(rest) >= need:
-                    picks = random.sample(rest, need)
+        need = len(empty_keys)
+        picks = []
 
-            for k, p in zip(empty_keys, picks):
-                plan[k] = p
-                used.add(p)
+        if gender_mode == "혼합":
+            already_m = sum(1 for x in already if _gender_of(x) == "남")
+            already_w = sum(1 for x in already if _gender_of(x) == "여")
 
-        # ✅ 기존 값 유지
-        for k, v in fixed.items():
-            if v and v != "선택":
-                plan.setdefault(k, v)
+            while len(picks) < need:
+                want_m = (already_m + sum(1 for x in picks if _gender_of(x) == "남")) < 2
+                want_w = (already_w + sum(1 for x in picks if _gender_of(x) == "여")) < 2
 
-        return plan
+                if want_m and men:
+                    pick = random.choice(men) if not ntrp_on else _pick_by_ntrp_closest(men, None)
+                    men.remove(pick)
+                elif want_w and women:
+                    pick = random.choice(women) if not ntrp_on else _pick_by_ntrp_closest(women, None)
+                    women.remove(pick)
+                else:
+                    rest = men + women
+                    if not rest:
+                        break
+                    pick = random.choice(rest) if not ntrp_on else _pick_by_ntrp_closest(rest, None)
+                    if pick in men:
+                        men.remove(pick)
+                    else:
+                        women.remove(pick)
+
+                picks.append(pick)
+
+        elif gender_mode == "동성":
+            already_gender = _gender_of(already[0]) if already else None
+            cand = men if already_gender == "남" else women if already_gender == "여" else (men if len(men) >= need else women)
+            if len(cand) >= need:
+                picks = random.sample(cand, need)
+
+        else:
+            rest = men + women
+            if len(rest) >= need:
+                picks = random.sample(rest, need)
+
+        for k, p in zip(empty_keys, picks):
+            plan[k] = p
+            used.add(p)
+
+    # ✅ 기존 값 유지
+    for k, v in fixed.items():
+        if v and v != "선택":
+            plan.setdefault(k, v)
+
+    return plan
+
+
 
     # =========================================================
     # ✅ 조별 분리 대진 생성용 헬퍼
@@ -4204,8 +4201,7 @@ with tab2:
                     st.session_state[k] = "선택"
                     st.session_state[f"_prev_{k}"] = "선택"
 
-            st.session_state["_manual_prefill"] = {}
-            st.session_state["_manual_prefill_used"] = False
+
             st.session_state.pop("_manual_pending_set", None)  # 혹시 남아있던 거 제거
 
         # -------------------------
@@ -4270,10 +4266,7 @@ with tab2:
                         st.session_state[k] = "선택"
                         st.session_state[f"_prev_{k}"] = "선택"
 
-                    pre = st.session_state.get("_manual_prefill", {})
-                    for k in _manual_all_keys_for_round(r, court_count, gtype):
-                        pre.pop(k, None)
-                    st.session_state["_manual_prefill"] = pre
+
 
                 # ✅ 이 라운드 빈칸 채우기
                 if fill_round_clicked:
@@ -4283,7 +4276,8 @@ with tab2:
                         court_count=court_count,
                         gtype=gtype,
                         view_mode=view_mode_for_schedule,
-                        gender_mode=("혼합" if manual_gender_mode == "혼합" else "동성" if manual_gender_mode == "동성" else "랜덤"),
+
+                        gender_mode=_manual_gender_to_mode(manual_gender_mode),
                         ntrp_on=bool(manual_fill_ntrp),
                     )
                     if plan:
@@ -4906,7 +4900,7 @@ with tab3:
 
                 # 🔒 이 날짜의 잠금 상태
                 lock_key = f"{sel_date}_scores_locked"
-                locked = day_data.get("scores_locked", False)
+
 
                 # -------------------------------------------------
                 # ✅ 잠금 UI를 "이 날짜에서 딱 한 번만" 보여주기 위한 플래그
