@@ -4868,14 +4868,12 @@ with tab3:
 
             def render_score_inputs_block(title, game_list):
                 """title: 'A조 경기 스코어', 'B조 경기 스코어' 등
-                   if not game_list:
-                       return
                    game_list: [(idx, gtype, t1, t2, court), ...]"""
                 if not game_list:
                     return
 
-                # 🔒 이 날짜의 잠금 상태
-                locked = day_data.get("scores_locked", False)
+                # 🔒 이 날짜의 잠금 상태 (저장본 기준)
+                locked = bool(day_data.get("scores_locked", False))
 
                 # 헤더 색상
                 if ("A조" in title) or ("전체 경기 스코어" in title):
@@ -4888,9 +4886,12 @@ with tab3:
                     color = "#6b7280"   # 회색
                     bg = "#f3f4f6"
 
-                # 🔒 이 날짜의 잠금 상태
+                # ✅ 날짜별 잠금 위젯 키 (중요!)
                 lock_key = f"{sel_date}_scores_locked"
 
+                # ✅ 위젯 렌더 전에만 기본값 주입 (이미 있으면 건드리지 않음)
+                if lock_key not in st.session_state:
+                    st.session_state[lock_key] = locked
 
                 # -------------------------------------------------
                 # ✅ 잠금 UI를 "이 날짜에서 딱 한 번만" 보여주기 위한 플래그
@@ -4901,9 +4902,6 @@ with tab3:
                     st.session_state[lock_ui_flag] = False
 
                 # ✅ 잠금 UI를 보여줄 조건
-                # 1) A조 헤더일 때
-                # 2) 전체 경기 스코어 헤더일 때
-                # 3) 위 둘 다 아니어도, 아직 잠금 UI를 한 번도 안 보여줬다면
                 should_show_lock = (
                     ("A조" in title)
                     or ("전체 경기 스코어" in title)
@@ -4914,7 +4912,6 @@ with tab3:
                 # ✅ 헤더 렌더 + 잠금 UI
                 # -------------------------------------------------
                 if should_show_lock:
-                    # 이 날짜에서 잠금 UI가 이미 한 번 렌더됐다고 기록
                     st.session_state[lock_ui_flag] = True
 
                     col_h, col_ck, col_txt = st.columns([8, 1.2, 1.8], vertical_alignment="center")
@@ -4939,11 +4936,10 @@ with tab3:
 
                     with col_ck:
                         scores_locked = st.checkbox(
-                            "",
-                            key=lock_key,
-                            value=locked,
+                            "scores_locked",              # ✅ 빈값 금지 (화면에는 숨김)
+                            key=lock_key,                 # ✅ 날짜별 키로 고정
+                            value=bool(st.session_state.get(lock_key, locked)),
                             label_visibility="collapsed",
-                            help="체크하면 이 날짜의 점수를 수정할 수 없습니다.",
                         )
 
                     with col_txt:
@@ -4952,13 +4948,14 @@ with tab3:
                             unsafe_allow_html=True,
                         )
 
-                    if scores_locked != locked:
-                        day_data["scores_locked"] = scores_locked
+                    # ✅ 값이 바뀌면 저장
+                    if bool(scores_locked) != locked:
+                        day_data["scores_locked"] = bool(scores_locked)
                         sessions[sel_date] = day_data
                         st.session_state.sessions = sessions
                         save_sessions(sessions)
 
-                    locked = scores_locked
+                    locked = bool(scores_locked)
 
                 else:
                     # ✅ 잠금 UI 없이 헤더만 표시
