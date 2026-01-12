@@ -2812,22 +2812,19 @@ with tab1:
 
         roster_by_name = {p["name"]: p for p in roster}
 
-        # ✅ 그룹(실력조) 값 정규화: None/"" → "미배정"
+        # ✅ "미배정(게스트)" 같은 변형들도 '미배정'으로 묶어서 표시되게
         col_grp = "실력조" if not mobile_mode else "조"
         if col_grp in df_disp.columns:
-            df_disp[col_grp] = (
-                df_disp[col_grp]
-                .fillna("미배정")
-                .astype(str)
-                .str.strip()
-                .replace({"": "미배정", "None": "미배정"})
-            )
-        else:
-            # 혹시 컬럼이 없을 경우를 대비 (거의 안 나옴)
-            df_disp[col_grp] = "미배정"
+            def _norm_group(v):
+                s = "" if v is None else str(v)
+                return "미배정" if s.startswith("미배정") else s
 
-        # ✅ 원하는 표시 순서 (미배정도 따로 섹션으로 항상 보이게)
-        group_order = ["A조", "B조", "미배정"]
+            df_disp[col_grp] = df_disp[col_grp].apply(_norm_group)
+
+        for grp in ["A조", "B조", "미배정"]:
+            col_grp = "실력조" if not mobile_mode else "조"
+            if col_grp not in df_disp.columns:
+                continue
 
         for grp in group_order:
             sub = df_disp[df_disp[col_grp] == grp].copy()
