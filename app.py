@@ -5,6 +5,7 @@ import random
 import math
 from datetime import date
 from collections import defaultdict, Counter
+from collections import defaultdict
 
 import pandas as pd
 import streamlit as st
@@ -2809,24 +2810,42 @@ with tab1:
 
         roster_by_name = {p["name"]: p for p in roster}
 
-        for grp in ["A조", "B조", "미배정"]:
-            col_grp = "실력조" if not mobile_mode else "조"
-            if col_grp not in df_disp.columns:
-                continue
+        roster_by_name = {p["name"]: p for p in roster}
 
-            sub = df_disp[df_disp[col_grp] == grp]
-            if sub.empty:
-                continue
+        # ✅ 그룹(실력조) 값 정규화: None/"" → "미배정"
+        col_grp = "실력조" if not mobile_mode else "조"
+        if col_grp in df_disp.columns:
+            df_disp[col_grp] = (
+                df_disp[col_grp]
+                .fillna("미배정")
+                .astype(str)
+                .str.strip()
+                .replace({"": "미배정", "None": "미배정"})
+            )
+        else:
+            # 혹시 컬럼이 없을 경우를 대비 (거의 안 나옴)
+            df_disp[col_grp] = "미배정"
 
+        # ✅ 원하는 표시 순서 (미배정도 따로 섹션으로 항상 보이게)
+        group_order = ["A조", "B조", "미배정"]
+
+        for grp in group_order:
+            sub = df_disp[df_disp[col_grp] == grp].copy()
+
+            # ✅ "미배정" 섹션은 비어있어도 제목은 보여주기(원하면)
             st.markdown(f"■ {grp}")
+            if sub.empty:
+                st.caption("없음")
+                st.markdown("<div style='height:0.4rem;'></div>", unsafe_allow_html=True)
+                continue
 
             styled_or_df = colorize_df_names_hybrid(
                 sub,
                 roster_by_name,
                 name_cols=["이름"],
             )
-
             smart_table_hybrid(styled_or_df)
+
 
     else:
         st.info("등록된 선수가 없습니다.")
@@ -3164,8 +3183,7 @@ with tab1:
 
 
 
-import random
-from collections import defaultdict
+
 
 # ---------------------------------------------------------
 # ✅ 스케줄 평가 유틸
@@ -3854,7 +3872,7 @@ with tab2:
         gc1, gc2, gc3, gc4, gc5 = st.columns([2.5, 1.0, 1.2, 1.1, 1.2])
 
         with gc1:
-            guest_name = st.text_input("게스트 이름", key="guest_name_input", placeholder="예: 홍길동")
+            guest_name = st.text_input("게스트 이름", key="guest_name_input", placeholder="예: 차은우")
         with gc2:
             guest_gender = st.selectbox("성별", ["남", "여"], index=0, key="guest_gender_input")
         with gc3:
