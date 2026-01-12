@@ -11,6 +11,72 @@ import streamlit as st
 import streamlit.components.v1 as components
 import plotly.express as px
 
+import io
+import json
+import streamlit as st
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
+
+DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
+
+@st.cache_resource
+def get_drive_service():
+    info = dict(st.secrets["google_service_account"])
+    creds = service_account.Credentials.from_service_account_info(info, scopes=DRIVE_SCOPES)
+    return build("drive", "v3", credentials=creds, cache_discovery=False)
+
+def drive_download_text(file_id: str) -> str:
+    service = get_drive_service()
+    req = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, req)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    return fh.getvalue().decode("utf-8")
+
+def drive_upload_text(file_id: str, text: str):
+    service = get_drive_service()
+    media = MediaIoBaseUpload(
+        io.BytesIO(text.encode("utf-8")),
+        mimetype="application/json",
+        resumable=False,
+    )
+    service.files().update(
+        fileId=file_id,
+        media_body=media,
+        supportsAllDrives=True,
+    ).execute()
+
+def load_json_drive(file_id: str, default):
+    try:
+        raw = drive_download_text(file_id)
+        return json.loads(raw) if raw.strip() else default
+    except Exception:
+        return default
+
+def save_json_drive(file_id: str, data):
+    text = json.dumps(data, ensure_ascii=False, indent=2)
+    drive_upload_text(file_id, text)
+
+
+PLAYERS_FILE_ID = st.secrets["drive"]["players_file_id"]
+SESSIONS_FILE_ID = st.secrets["drive"]["sessions_file_id"]
+
+def load_players():
+    return load_json_drive(PLAYERS_FILE_ID, [])
+
+def save_players(players):
+    save_json_drive(PLAYERS_FILE_ID, players)
+
+def load_sessions():
+    return load_json_drive(SESSIONS_FILE_ID, {})
+
+def save_sessions(sessions):
+    save_json_drive(SESSIONS_FILE_ID, sessions)
+
+
 # ---------------------------------------------------------
 # Streamlit 초기화 (✅ 딱 1번만 / 제일 위에서)
 # ---------------------------------------------------------
@@ -641,38 +707,7 @@ def build_daily_report(sel_date, day_data):
 
 
 
-# ---------------------------------------------------------
-# 파일 입출력
-# ---------------------------------------------------------
-def load_json(path, default):
-    if not os.path.exists(path):
-        return default
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return default
 
-
-def save_json(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-
-def load_players():
-    return load_json(PLAYERS_FILE, [])
-
-
-def save_players(players):
-    save_json(PLAYERS_FILE, players)
-
-
-def load_sessions():
-    return load_json(SESSIONS_FILE, {})
-
-
-def save_sessions(sessions):
-    save_json(SESSIONS_FILE, sessions)
 
 
 def render_static_on_mobile(df_or_styler):
@@ -6590,3 +6625,4 @@ with tab5:
                     """,
                     unsafe_allow_html=True,
                 )
+
