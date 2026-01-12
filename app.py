@@ -5458,7 +5458,7 @@ with tab3:
                         "요약 보기 방식",
                         ["대진별 보기", "개인별 보기"],
                         horizontal=True,
-                        key="tab3_summary_view_mode",
+                        key=f"tab3_summary_view_mode_{sel_date}"
                     )
 
                     games_A_sum, games_B_sum, games_other_sum = [], [], []
@@ -5520,7 +5520,78 @@ with tab3:
                         for p in t2:
                             target_dict[p].append(score_t2)
 
+
+
                     if summary_view_mode == "대진별 보기":
+
+
+                        # =========================================================
+                        # ✅ [대진표 캡처 + 텍스트 복사용] 준비
+                        #   - 대진별 보기에서만 동작
+                        # =========================================================
+                        import re, json
+                        import streamlit.components.v1 as components
+
+                        def _team_join(x):
+                            if isinstance(x, (list, tuple)):
+                                return ",".join([str(v).strip() for v in x if str(v).strip()])
+                            s = re.sub(r"<[^>]*>", "", str(x)).strip()
+                            s = re.sub(r"\s+", " ", s).strip()
+                            parts = [p.strip() for p in s.split(" ") if p.strip()]
+                            return ",".join(parts)
+
+                        def build_fixture_text_by_round(schedule_list):
+                            """
+                            schedule: [(gtype, t1, t2, court), ...]
+                            출력 포맷:
+                              1게임.1코트 A,B vs C,D
+                              1게임.2코트 E,F vs G,H
+
+                              2게임.1코트 ...
+                              2게임.2코트 ...
+                            """
+                            if not schedule_list:
+                                return ""
+
+                            # 코트 개수 추정 (코트 번호가 1..N이면 max가 코트 수로 가장 안전)
+                            courts = []
+                            for item in schedule_list:
+                                try:
+                                    courts.append(int(item[3]))
+                                except Exception:
+                                    pass
+                            court_count = max(courts) if courts else 1
+                            if court_count <= 0:
+                                court_count = 1
+
+                            lines = []
+                            prev_round = None
+
+                            for i, (gtype, t1, t2, court) in enumerate(schedule_list):
+                                round_no = (i // court_count) + 1
+
+                                try:
+                                    court_no = int(court)
+                                except Exception:
+                                    court_no = (i % court_count) + 1
+
+                                if prev_round is not None and round_no != prev_round:
+                                    lines.append("")  # ✅ 게임 바뀌면 빈 줄 1개(=두줄 띄기 효과)
+
+                                lines.append(f"{round_no}게임.{court_no}코트 {_team_join(t1)} vs {_team_join(t2)}")
+                                prev_round = round_no
+
+                            return "\n".join(lines).strip()
+
+                        fixture_text = build_fixture_text_by_round(schedule)
+
+                        safe_date_key = re.sub(r"[^0-9a-zA-Z_]+", "_", str(sel_date))
+                        capture_id = f"tab3_fixture_capture_{safe_date_key}"
+
+                        # ✅ 여기부터 캡처할 영역 시작 (대진별 표 전체를 감싸는 div)
+                        st.markdown(f'<div id="{capture_id}">', unsafe_allow_html=True)
+
+
                         if view_mode_scores == "조별 보기 (A/B조)":
                             if games_A_sum:
                                 st.markdown("### A조 경기 요약")
@@ -5534,6 +5605,135 @@ with tab3:
                         else:
                             all_games_sum = games_A_sum + games_B_sum + games_other_sum
                             render_score_summary_table(all_games_sum, roster_by_name)
+
+
+                        # ✅ 캡처 영역 끝
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+                        # =========================================================
+                        # ✅ [표 아래] JPEG 저장 + 텍스트 클립보드 복사 버튼
+                        #   - html2canvas를 parent(메인 페이지)에 로드해서 캡처 안정화
+                        # =========================================================
+                        components.html(
+                            f"""
+                            <div style="display:flex; gap:12px; margin-top:14px; align-items:center;">
+                              <button id="{capture_id}__save"
+                                style="flex:1; padding:10px 12px; border-radius:10px; border:1px solid rgba(0,0,0,0.15);
+                                       background:white; cursor:pointer; font-weight:700;">
+                                대진표 이미지 저장 (JPEG)
+                              </button>
+
+                              <button id="{capture_id}__copy"
+                                style="flex:1; padding:10px 12px; border-radius:10px; border:1px solid rgba(0,0,0,0.15);
+                                       background:white; cursor:pointer; font-weight:700;">
+                                대진표 텍스트 저장 (클립보드)
+                              </button>
+
+                              <span id="{capture_id}__msg" style="font-size:12px; opacity:0.7;"></span>
+                            </div>
+
+                            <script>
+                            (function() {{
+                              const capId = {json.dumps(capture_id)};
+                              const fileName = "대진표_" + {json.dumps(str(sel_date))}.replace(/[^0-9a-zA-Z_\\-]+/g, "_") + ".jpg";
+                              const text = {json.dumps(fixture_text)};
+
+                              const msgEl = document.getElementById(capId + "__msg");
+                              const btnSave = document.getElementById(capId + "__save");
+                              const btnCopy = document.getElementById(capId + "__copy");
+
+                              function setMsg(m) {{
+                                if (msgEl) msgEl.textContent = m;
+                              }}
+
+                              function ensureHtml2Canvas() {{
+                                return new Promise((resolve, reject) => {{
+                                  const p = window.parent;
+                                  if (p && p.html2canvas) {{
+                                    resolve(p.html2canvas);
+                                    return;
+                                  }}
+                                  const ps = p.document.createElement("script");
+                                  ps.src = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
+                                  ps.onload = () => resolve(p.html2canvas);
+                                  ps.onerror = reject;
+                                  p.document.head.appendChild(ps);
+                                }});
+                              }}
+
+                              async function copyTextFallback(t) {{
+                                const pdoc = window.parent.document;
+                                const ta = pdoc.createElement("textarea");
+                                ta.value = t;
+                                ta.style.position = "fixed";
+                                ta.style.left = "-9999px";
+                                pdoc.body.appendChild(ta);
+                                ta.focus();
+                                ta.select();
+                                try {{
+                                  pdoc.execCommand("copy");
+                                }} catch(e) {{}}
+                                ta.remove();
+                              }}
+
+                              if (btnSave) {{
+                                btnSave.onclick = async function() {{
+                                  try {{
+                                    setMsg("이미지 생성중…");
+                                    const pdoc = window.parent.document;
+                                    const target = pdoc.getElementById(capId);
+                                    if (!target) {{
+                                      setMsg("표를 찾지 못했어.");
+                                      return;
+                                    }}
+
+                                    const h2c = await ensureHtml2Canvas();
+                                    const canvas = await h2c(target, {{
+                                      backgroundColor: "#ffffff",
+                                      scale: 2,
+                                      useCORS: true
+                                    }});
+
+                                    const url = canvas.toDataURL("image/jpeg", 0.95);
+                                    const a = pdoc.createElement("a");
+                                    a.href = url;
+                                    a.download = fileName;
+                                    pdoc.body.appendChild(a);
+                                    a.click();
+                                    a.remove();
+
+                                    setMsg("JPEG 저장 완료!");
+                                  }} catch (e) {{
+                                    console.log(e);
+                                    setMsg("저장 실패(콘솔 확인)");
+                                  }}
+                                }};
+                              }}
+
+                              if (btnCopy) {{
+                                btnCopy.onclick = async function() {{
+                                  try {{
+                                    await window.parent.navigator.clipboard.writeText(text);
+                                    setMsg("클립보드 복사 완료!");
+                                  }} catch(e) {{
+                                    await copyTextFallback(text);
+                                    setMsg("클립보드 복사 완료!");
+                                  }}
+                                }};
+                              }}
+                            }})();
+                            </script>
+                            """,
+                            height=90,
+                        )
+
+                        # (선택) 실패 대비용 텍스트 미리보기
+                        with st.expander("대진표 텍스트 미리보기/수동복사"):
+                            st.text_area("대진표 텍스트", fixture_text, height=220)
+
+
+
+
                     else:
                         def render_player_score_table(title, per_dict):
                             if not per_dict:
