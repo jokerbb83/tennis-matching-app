@@ -3407,6 +3407,8 @@ def _ui_to_doubles_mode(mode_label: str) -> str:
 
 
 
+
+
 with tab2:
     section_card("오늘 경기 세션", "🎾")
 
@@ -3418,6 +3420,17 @@ with tab2:
             st.rerun()
         elif hasattr(st, "experimental_rerun"):
             st.experimental_rerun()
+
+    def _sanitize_multiselect_value(key: str, valid_options):
+        """멀티셀렉트 선택값이 옵션에 없으면 제거해서 Streamlit 크래시 방지"""
+        cur = st.session_state.get(key, [])
+        if not isinstance(cur, list):
+            return
+        valid = set(valid_options)
+        cleaned = [x for x in cur if x in valid]
+        if cleaned != cur:
+            st.session_state[key] = cleaned
+
 
     # =========================================================
     # [TAB2] 수동 배정 유틸 (중복 방지 + 빈칸만 채우기)
@@ -3939,6 +3952,9 @@ with tab2:
     guest_names = [g["name"] for g in guest_list] if guest_enabled else []
     names_all = names_all_members + guest_names
     names_sorted = sorted(names_all, key=lambda n: n)
+
+    # ✅ 크래시 방지: 현재 선택값이 옵션에서 빠졌으면 자동 제거
+    _sanitize_multiselect_value("ms_today_players", names_sorted)
 
     with col_ms:
         sel_players = st.multiselect("오늘 참가 선수들", names_sorted, default=[], key="ms_today_players")
