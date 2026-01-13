@@ -18,6 +18,16 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
+import faulthandler, signal, sys
+faulthandler.enable(all_threads=True)
+try:
+    faulthandler.register(signal.SIGABRT, file=sys.stderr, all_threads=True)
+except Exception:
+    pass
+
+
+
+
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 @st.cache_resource
@@ -2745,8 +2755,8 @@ tab3, tab5, tab4, tab1, tab2 = st.tabs(
 
 with tab1:
     st.header("🧾 선수 정보 관리")
-    st.subheader("등록된 선수 목록")
 
+    st.subheader("등록된 선수 목록")
     if roster:
         df = pd.DataFrame(roster)
         df_disp = df.copy()
@@ -2799,7 +2809,13 @@ with tab1:
             if col_grp not in df_disp.columns:
                 continue
 
+
             sub = df_disp[df_disp[col_grp] == grp]
+
+            # ✅ 가나다순 정렬
+            if "이름" in sub.columns:
+                sub = sub.sort_values(by="이름", ascending=True, kind="mergesort").reset_index(drop=True)
+
             if sub.empty:
                 continue
 
@@ -2947,56 +2963,87 @@ with tab1:
     st.markdown("---")
     st.subheader("선수 정보 수정 / 삭제")
 
-    names = sorted([p["name"] for p in roster], key=lambda x: x)
+    # ✅ rerun 호환
+    def _safe_rerun():
+        if hasattr(st, "rerun"):
+            st.rerun()
+        elif hasattr(st, "experimental_rerun"):
+            st.experimental_rerun()
+
+    # ✅ 위젯 key 값은 "생성 후" 수정하면 에러 → 다음 rerun 시작 때만 적용(pending)
+    def _queue_widget_set(key: str, value):
+        st.session_state.setdefault("_widget_pending", {})[key] = value
+
+    # ✅ rerun으로 다시 시작되면, 위젯 만들기 전에 pending 값을 먼저 반영
+    if "_widget_pending" in st.session_state:
+        for k, v in st.session_state["_widget_pending"].items():
+            st.session_state[k] = v
+        st.session_state.pop("_widget_pending", None)
+
+    # ✅ roster는 session_state가 단일 소스
+    if "roster" not in st.session_state or not isinstance(st.session_state.get("roster"), list):
+        st.session_state.roster = roster
+    roster = st.session_state.roster
+
+
+
+    names = sorted([p.get("name", "") for p in roster if p.get("name")], key=lambda x: x)
+    options = ["선택 안함"] + names
+
+    # ✅ 현재 sel_edit가 옵션에 없으면 안전값으로 (selectbox 생성 전!)
+    if st.session_state.get("sel_edit") not in options:
+        st.session_state["sel_edit"] = "선택 안함"
+
     if names:
         sel_edit = st.selectbox(
             "수정할 선수 선택",
-            ["선택 안함"] + names
+            options,
+            key="sel_edit",
         )
 
         if sel_edit != "선택 안함":
-            player = next(p for p in roster if p["name"] == sel_edit)
+            player = next((p for p in roster if p.get("name") == sel_edit), None)
+
+            if player is None:
+                _queue_widget_set("sel_edit", "선택 안함")
+                _safe_rerun()
+
+            old_name = player.get("name", "")
 
             c1, c2 = st.columns(2)
             with c1:
-                e_name = st.text_input("이름 (수정)", value=player["name"])
+                e_name = st.text_input("이름 (수정)", value=old_name, key=f"edit_name_{old_name}")
                 e_age = st.selectbox(
                     "나이대 (수정)",
                     AGE_OPTIONS,
-                    index=get_index_or_default(
-                        AGE_OPTIONS, player.get("age_group", "비밀"), 0
-                    ),
+                    index=get_index_or_default(AGE_OPTIONS, player.get("age_group", "비밀"), 0),
+                    key=f"edit_age_{old_name}",
                 )
                 e_racket = st.selectbox(
                     "라켓 (수정)",
                     RACKET_OPTIONS,
-                    index=get_index_or_default(
-                        RACKET_OPTIONS, player.get("racket", "기타"), 0
-                    ),
+                    index=get_index_or_default(RACKET_OPTIONS, player.get("racket", "기타"), 0),
+                    key=f"edit_racket_{old_name}",
                 )
                 e_group = st.selectbox(
                     "실력조 (수정)",
                     GROUP_OPTIONS,
-                    index=get_index_or_default(
-                        GROUP_OPTIONS, player.get("group", "미배정"), 0
-                    ),
+                    index=get_index_or_default(GROUP_OPTIONS, player.get("group", "미배정"), 0),
+                    key=f"edit_group_{old_name}",
                 )
+
             with c2:
                 e_gender = st.selectbox(
                     "성별 (수정)",
                     GENDER_OPTIONS,
-                    index=get_index_or_default(
-                        GENDER_OPTIONS, player.get("gender", "남"), 0
-                    ),
-                    key=f"edit_gender_{sel_edit}",   # ✅ 고유 key
+                    index=get_index_or_default(GENDER_OPTIONS, player.get("gender", "남"), 0),
+                    key=f"edit_gender_{old_name}",
                 )
                 e_hand = st.selectbox(
                     "주손 (수정)",
                     HAND_OPTIONS,
-                    index=get_index_or_default(
-                        HAND_OPTIONS, player.get("hand", "오른손"), 0
-                    ),
-                    key=f"edit_hand_{sel_edit}",     # ✅ 고유 key
+                    index=get_index_or_default(HAND_OPTIONS, player.get("hand", "오른손"), 0),
+                    key=f"edit_hand_{old_name}",
                 )
 
                 cur_ntrp = player.get("ntrp")
@@ -3005,58 +3052,60 @@ with tab1:
                     "NTRP (수정)",
                     NTRP_OPTIONS,
                     index=get_index_or_default(NTRP_OPTIONS, cur_ntrp_str, 0),
-                    key=f"edit_ntrp_{sel_edit}",     # ✅ 고유 key
+                    key=f"edit_ntrp_{old_name}",
                 )
 
-                # MBTI (수정)
                 cur_mbti = player.get("mbti", "모름")
                 e_mbti = st.selectbox(
                     "MBTI (수정)",
                     MBTI_OPTIONS,
                     index=get_index_or_default(MBTI_OPTIONS, cur_mbti, 0),
-                    key=f"edit_mbti_{sel_edit}",     # ✅ 고유 key
+                    key=f"edit_mbti_{old_name}",
                 )
-
-
 
             cb1, cb2 = st.columns(2)
 
-
+            # ✅ 삭제 확인 상태
+            if "pending_delete" not in st.session_state:
+                st.session_state.pending_delete = None
 
             with cb1:
                 st.markdown('<div class="main-primary-btn">', unsafe_allow_html=True)
                 if st.button("수정 저장", use_container_width=True, key="btn_edit_save"):
-                    ntrp_val = None
-                    if e_ntrp_str != "모름":
-                        ntrp_val = float(e_ntrp_str)
+                    new_name_clean = (e_name or "").strip()
 
-                    player.update(
-                        {
-                            "name": e_name.strip(),
-                            "age_group": e_age,
-                            "racket": e_racket,
-                            "group": e_group,
-                            "gender": e_gender,
-                            "hand": e_hand,
-                            "ntrp": ntrp_val,
-                            "mbti": e_mbti,
-                        }
-                    )
+                    if not new_name_clean:
+                        st.error("이름을 입력해줘.")
+                    elif new_name_clean != old_name and any(p.get("name") == new_name_clean for p in roster):
+                        st.error("이미 같은 이름의 선수가 있어.")
+                    else:
+                        ntrp_val = None
+                        if e_ntrp_str != "모름":
+                            ntrp_val = float(e_ntrp_str)
 
-                    save_players(roster)
-                    st.session_state.roster = roster  # ← 메모리 즉시 반영
-                    st.success("선수 정보가 수정되었습니다!")
+                        player.update(
+                            {
+                                "name": new_name_clean,
+                                "age_group": e_age,
+                                "racket": e_racket,
+                                "group": e_group,
+                                "gender": e_gender,
+                                "hand": e_hand,
+                                "ntrp": ntrp_val,
+                                "mbti": e_mbti,
+                            }
+                        )
 
-                    st.rerun()  # ← 즉시 화면 재렌더링 (새로고침 없이 반영)
+                        st.session_state.roster = roster
+                        save_players(roster)
 
+                        # ✅ selectbox 값을 "지금" 바꾸지 말고, 다음 rerun 시작 때 바꾸기
+                        _queue_widget_set("sel_edit", new_name_clean)
+
+                        st.session_state.pending_delete = None
+                        st.session_state["_flash_player_msg"] = "선수 정보가 수정되었습니다!"
+                        _safe_rerun()
                 st.markdown("</div>", unsafe_allow_html=True)
-
-
-
-
-
-            if "pending_delete" not in st.session_state:
-                st.session_state.pending_delete = None
 
             with cb2:
                 st.markdown('<div class="main-danger-btn">', unsafe_allow_html=True)
@@ -3078,16 +3127,18 @@ with tab1:
                 with cc2:
                     if st.button("🗑 네, 삭제합니다", use_container_width=True, key="confirm_delete"):
                         target = st.session_state.pending_delete
-                        st.session_state.roster = [
-                            p for p in roster if p["name"] != target
-                        ]
-                        roster = st.session_state.roster
+                        roster = [p for p in roster if p.get("name") != target]
+
+                        st.session_state.roster = roster
                         save_players(roster)
+
                         st.session_state.pending_delete = None
-                        st.success(f"'{target}' 선수 삭제 완료! (새로고침 필요)")
-            # ---------------------------------------------------------------
 
+                        # ✅ 삭제 후 선택 해제
+                        _queue_widget_set("sel_edit", "선택 안함")
 
+                        st.session_state["_flash_player_msg"] = f"'{target}' 선수 삭제 완료!"
+                        _safe_rerun()
 
     else:
         st.info("수정할 선수가 없습니다.")
@@ -3096,6 +3147,11 @@ with tab1:
     # 2) 새 선수 추가 (기본은 접혀 있음)
     # -----------------------------------------------------
     st.markdown("---")
+
+    # ✅ flash 메시지(리런 후에도 유지)
+    if st.session_state.get("_flash_player_msg"):
+        st.success(st.session_state.pop("_flash_player_msg"))
+
     with st.expander("➕ 새 선수 추가", expanded=False):
         c1, c2 = st.columns(2)
         with c1:
@@ -3107,45 +3163,48 @@ with tab1:
             new_gender = st.selectbox("성별", GENDER_OPTIONS, index=0, key="new_gender")
             new_hand = st.selectbox("주로 쓰는 손", HAND_OPTIONS, index=0, key="new_hand")
             ntrp_str = st.selectbox("NTRP (실력)", NTRP_OPTIONS, index=0, key="new_ntrp")
-
-            new_mbti = st.selectbox(
-                "MBTI",
-                MBTI_OPTIONS,
-                index=0,
-                key="new_mbti",
-            )
-
-
+            new_mbti = st.selectbox("MBTI", MBTI_OPTIONS, index=0, key="new_mbti")
 
         st.markdown('<div class="main-primary-btn">', unsafe_allow_html=True)
         add_clicked = st.button("선수 추가", use_container_width=True, key="btn_add_player")
         st.markdown("</div>", unsafe_allow_html=True)
 
         if add_clicked:
-            if not new_name.strip():
+            name_clean = (new_name or "").strip()
+
+            if not name_clean:
                 st.error("이름을 입력해 주세요.")
-            elif any(p["name"] == new_name for p in roster):
+            elif any(p.get("name") == name_clean for p in roster):
                 st.error("이미 같은 이름의 선수가 있습니다.")
             else:
                 ntrp_val = None
                 if ntrp_str != "모름":
                     ntrp_val = float(ntrp_str)
+
                 player = {
-                    "name": new_name.strip(),
+                    "name": name_clean,
                     "gender": new_gender,
                     "hand": new_hand,
                     "age_group": new_age,
                     "racket": new_racket,
                     "group": new_group,
                     "ntrp": ntrp_val,
-    	            "mbti": new_mbti,
+                    "mbti": new_mbti,
                 }
+
                 roster.append(player)
                 st.session_state.roster = roster
                 save_players(roster)
-                st.success(f"'{new_name}' 선수 추가 완료!")
 
+                # ✅ 추가 즉시 목록 반영 + 그 선수 자동 선택(다음 rerun 시작 때)
+                _queue_widget_set("sel_edit", name_clean)
 
+                st.session_state["_flash_player_msg"] = f"'{name_clean}' 선수 추가 완료!"
+
+                # ✅ 입력칸 비우기(다음 rerun 시작 때)
+                _queue_widget_set("new_name", "")
+
+                _safe_rerun()
 
 
 
@@ -3849,6 +3908,8 @@ with tab2:
 
 
     col_ms, col_sp = st.columns([3, 2])
+
+
     with col_sp:
         guest_mode_ui = st.checkbox(
             "👥 게스트 추가",
