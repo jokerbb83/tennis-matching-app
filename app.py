@@ -3490,11 +3490,13 @@ with tab2:
         if cleaned != cur:
             st.session_state[key] = cleaned
 
-
     # =========================================================
     # [TAB2] 수동 배정 유틸 (중복 방지 + 빈칸만 채우기)
     #   - 레이아웃/기능 동일, 내부 중복만 정리
     # =========================================================
+    import random
+    from collections import Counter, defaultdict
+
     def _manual_key(r: int, c: int, pos: int, gtype: str) -> str:
         gt = "D" if gtype == "복식" else "S"
         return f"man_{gt}_r{r}_c{c}_p{pos}"
@@ -3666,25 +3668,111 @@ with tab2:
         # UI 값("성별랜덤","동성","혼합") → 내부 값("랜덤","동성","혼합")
         return "혼합" if manual_gender_mode == "혼합" else "동성" if manual_gender_mode == "동성" else "랜덤"
 
+    # =========================================================
+    # ✅ 자동 채우기: "누를 때마다 랜덤" + "게임 참여수 적은 사람 우선" + "혼합은 남여/남여 강제"
+    #   - 레이아웃 변경 없음(내부 로직만)
+    # =========================================================
+    def _ensure_autofill_state():
+        st.session_state.setdefault("_auto_fill_keys_by_round", {})  # { rid: [keys...] }
+        st.session_state.setdefault("_auto_fill_map", {})            # { key: value }
+
+    def _rid(r: int, gtype: str) -> str:
+        return f"{'D' if gtype == '복식' else 'S'}_{r}"
+
+    def _autofill_clear_round(rr: int, gtype: str):
+        _ensure_autofill_state()
+        rid = _rid(rr, gtype)
+        keys = list(st.session_state["_auto_fill_keys_by_round"].get(rid, []))
+        for k in keys:
+            st.session_state["_auto_fill_map"].pop(k, None)
+        st.session_state["_auto_fill_keys_by_round"].pop(rid, None)
+
+    def _game_counts_all(total_rounds: int, court_count: int, gtype: str, players_selected):
+        """전체 라운드 기준 참여수 카운트(현재 session_state 기준)"""
+        cnt = Counter()
+        pool = set(players_selected)
+        for rr in range(1, int(total_rounds) + 1):
+            for k in _manual_all_keys_for_round(rr, court_count, gtype):
+                v = st.session_state.get(k, "선택")
+                if v in pool and v != "선택":
+                    cnt[v] += 1
+        return cnt
+
+    def _pick_low_count(cands, counts: Counter, k: int = 8):
+        """게임수 적은 사람 우선 + top-k 안에서 랜덤"""
+        if not cands:
+            return None
+        rng = random.random
+        ordered = sorted(cands, key=lambda p: (counts.get(p, 0), rng()))
+        top = ordered[:min(k, len(ordered))]
+        return random.choice(top) if top else random.choice(cands)
+
+    def _pick_low_count_ntrp(cands, counts: Counter, target_name: str):
+        """NTRP 고려(가까운 실력) + 참여수 적은 사람 우선"""
+        if not cands:
+            return None
+        tn = _ntrp_of(target_name) if target_name else None
+        if tn is None:
+            return _pick_low_count(cands, counts)
+
+        rng = random.random
+        scored = []
+        for p in cands:
+            pn = _ntrp_of(p)
+            d = 9999.0 if pn is None else abs(pn - tn)
+            scored.append((d, counts.get(p, 0), rng(), p))
+        scored.sort(key=lambda x: (x[0], x[1], x[2]))
+        return scored[0][3] if scored else _pick_low_count(cands, counts)
+
+    def _pair_is_mixed(a: str, b: str) -> bool:
+        if not a or not b or a == "선택" or b == "선택":
+            return False
+        return _gender_of(a) != _gender_of(b)
+
     def _fill_round_plan(
         r: int,
         players_selected,
         court_count: int,
         gtype: str,
         view_mode: str,
-        gender_mode: str,  # "랜덤" / "동성" / "혼합"
+        gender_mode: str,   # "랜덤" / "동성" / "혼합"
         ntrp_on: bool,
+        total_rounds: int,
+        reroll: bool = True,
     ):
+        _ensure_autofill_state()
+
         plan = {}
+
+        # ✅ 이전 자동채움(그대로 유지된 칸)만 "선택"으로 되돌리고 다시 채워서 -> 누를 때마다 랜덤
+        rid = _rid(r, gtype)
+        prev_auto_keys = set(st.session_state["_auto_fill_keys_by_round"].get(rid, []))
+        auto_map = st.session_state["_auto_fill_map"]
 
         keys_round = _manual_all_keys_for_round(r, court_count, gtype)
         fixed = {k: _get_manual_value(k) for k in keys_round}
+
+        if reroll and prev_auto_keys:
+            for k in prev_auto_keys:
+                cur = fixed.get(k, "선택")
+                prev = auto_map.get(k)
+                # 사용자가 안 건드린 자동값이면 -> 비우고 다시 뽑기
+                if cur != "선택" and prev and cur == prev:
+                    fixed[k] = "선택"
+                    plan[k] = "선택"  # ✅ 실제로 비우기 반영(그래야 매번 바뀜)
+
         used = {v for v in fixed.values() if v and v != "선택"}
+
+        # ✅ 전체 라운드 기준 참여수
+        counts = _game_counts_all(int(total_rounds), int(court_count), gtype, players_selected)
+
+        new_auto_keys = set()
 
         for c in range(1, int(court_count) + 1):
             grp_tag = _court_group_tag(view_mode, c)
             pool = _pool_by_group(players_selected, grp_tag)
 
+            # ---------------- 단식 ----------------
             if gtype == "단식":
                 k1 = _manual_key(r, c, 1, gtype)
                 k2 = _manual_key(r, c, 2, gtype)
@@ -3696,109 +3784,298 @@ with tab2:
 
                 avail = [p for p in pool if p not in used]
 
-                if v1 != "선택" and v2 == "선택":
-                    cand = avail
+                def _filter_gender(cands, anchor):
                     if gender_mode == "동성":
-                        g1 = _gender_of(v1)
-                        cand = [p for p in cand if _gender_of(p) == g1]
-                    pick = _pick_by_ntrp_closest(cand, _ntrp_of(v1)) if ntrp_on else (random.choice(cand) if cand else None)
+                        g = _gender_of(anchor)
+                        return [p for p in cands if _gender_of(p) == g]
+                    if gender_mode == "혼합":
+                        g = _gender_of(anchor)
+                        if g == "남":
+                            return [p for p in cands if _gender_of(p) == "여"]
+                        if g == "여":
+                            return [p for p in cands if _gender_of(p) == "남"]
+                    return cands
+
+                if v1 != "선택" and v2 == "선택":
+                    cand = _filter_gender(avail, v1)
+                    pick = _pick_low_count_ntrp(cand, counts, v1) if ntrp_on else _pick_low_count(cand, counts)
                     if pick:
                         plan[k2] = pick
                         used.add(pick)
+                        counts[pick] += 1
+                        new_auto_keys.add(k2)
+                        auto_map[k2] = pick
                     continue
 
                 if v1 == "선택" and v2 != "선택":
-                    cand = avail
-                    if gender_mode == "동성":
-                        g2 = _gender_of(v2)
-                        cand = [p for p in cand if _gender_of(p) == g2]
-                    pick = _pick_by_ntrp_closest(cand, _ntrp_of(v2)) if ntrp_on else (random.choice(cand) if cand else None)
+                    cand = _filter_gender(avail, v2)
+                    pick = _pick_low_count_ntrp(cand, counts, v2) if ntrp_on else _pick_low_count(cand, counts)
                     if pick:
                         plan[k1] = pick
                         used.add(pick)
+                        counts[pick] += 1
+                        new_auto_keys.add(k1)
+                        auto_map[k1] = pick
                     continue
 
                 if v1 == "선택" and v2 == "선택":
-                    cand = avail
-                    if len(cand) >= 2:
-                        if ntrp_on:
-                            a = random.choice(cand)
-                            cand2 = [x for x in cand if x != a]
-                            b = _pick_by_ntrp_closest(cand2, _ntrp_of(a))
+                    if len(avail) >= 2:
+                        a = _pick_low_count(avail, counts)
+                        if a:
+                            used.add(a)
+                            counts[a] += 1
+
+                            avail2 = [p for p in pool if p not in used]
+                            cand2 = avail2
+                            if gender_mode in ("동성", "혼합"):
+                                # 단식도 옵션 반영
+                                if gender_mode == "동성":
+                                    cand2 = [p for p in cand2 if _gender_of(p) == _gender_of(a)]
+                                else:
+                                    cand2 = [p for p in cand2 if _gender_of(p) != _gender_of(a)]
+                            b = _pick_low_count_ntrp(cand2, counts, a) if ntrp_on else _pick_low_count(cand2, counts)
                             if b:
                                 plan[k1], plan[k2] = a, b
-                                used.update([a, b])
-                        else:
-                            a, b = random.sample(cand, 2)
-                            plan[k1], plan[k2] = a, b
-                            used.update([a, b])
+                                used.add(b)
+                                counts[b] += 1
+                                new_auto_keys.update([k1, k2])
+                                auto_map[k1] = a
+                                auto_map[k2] = b
+                            else:
+                                used.discard(a)
+                                counts[a] -= 1
+                    continue
+
                 continue
 
             # ---------------- 복식 ----------------
-            ks = [_manual_key(r, c, i, gtype) for i in (1, 2, 3, 4)]
+            pos_list = [1, 2, 3, 4]
+            ks = [_manual_key(r, c, pos, gtype) for pos in pos_list]
             vs = [fixed.get(k, "선택") for k in ks]
-            empty_keys = [k for k, v in zip(ks, vs) if v == "선택"]
-            if not empty_keys:
+
+            empty_pos = [pos for pos, val in zip(pos_list, vs) if val == "선택"]
+            if not empty_pos:
                 continue
 
-            already = [v for v in vs if v != "선택"]
-            avail = [p for p in pool if p not in used]
-            men = [p for p in avail if _gender_of(p) == "남"]
-            women = [p for p in avail if _gender_of(p) == "여"]
+            # 현재(고정 포함) 상태 dict
+            cur_pos = {pos: val for pos, val in zip(pos_list, vs)}
 
-            need = len(empty_keys)
-            picks = []
+            # avail
+            avail_all = [p for p in pool if p not in used]
+
+            # 동성: 고정값이 있으면 그 성별로 맞추기
+            if gender_mode == "동성":
+                fixed_vals = [v for v in cur_pos.values() if v != "선택"]
+                if fixed_vals:
+                    gfix = _gender_of(fixed_vals[0])
+                    avail_all = [p for p in avail_all if _gender_of(p) == gfix]
+                else:
+                    # 고정이 없으면 가능한 쪽 선택(남/여 중 need 충족)
+                    need = len(empty_pos)
+                    men_av = [p for p in avail_all if _gender_of(p) == "남"]
+                    wom_av = [p for p in avail_all if _gender_of(p) == "여"]
+                    if len(men_av) >= need and len(wom_av) >= need:
+                        # 둘 다 가능하면 참여수 합 적은 쪽
+                        men_score = sum(counts.get(p, 0) for p in men_av[:min(8, len(men_av))])
+                        wom_score = sum(counts.get(p, 0) for p in wom_av[:min(8, len(wom_av))])
+                        avail_all = men_av if men_score <= wom_score else wom_av
+                    elif len(men_av) >= need:
+                        avail_all = men_av
+                    elif len(wom_av) >= need:
+                        avail_all = wom_av
+                    else:
+                        # 둘 다 부족하면 그냥 전체(폴백)
+                        pass
+
+            # 혼합: "각 팀(1,2) / (3,4)"이 남+여가 되도록 채우기
+            def _pick_from(avail, want_gender=None, target_for_ntrp=None):
+                cand = avail
+                if want_gender in ("남", "여"):
+                    cand = [p for p in cand if _gender_of(p) == want_gender]
+                if not cand:
+                    return None
+                if ntrp_on and target_for_ntrp:
+                    return _pick_low_count_ntrp(cand, counts, target_for_ntrp)
+                return _pick_low_count(cand, counts)
+
+            def _remove(avail, nm):
+                if nm in avail:
+                    avail.remove(nm)
+
+            avail = list(avail_all)
 
             if gender_mode == "혼합":
-                already_m = sum(1 for x in already if _gender_of(x) == "남")
-                already_w = sum(1 for x in already if _gender_of(x) == "여")
+                # 두 팀(1,2) / (3,4)
+                pairs = [(1, 2), (3, 4)]
 
-                while len(picks) < need:
-                    want_m = (already_m + sum(1 for x in picks if _gender_of(x) == "남")) < 2
-                    want_w = (already_w + sum(1 for x in picks if _gender_of(x) == "여")) < 2
+                for a, b in pairs:
+                    va = cur_pos[a]
+                    vb = cur_pos[b]
 
-                    if want_m and men:
-                        pick = random.choice(men) if not ntrp_on else _pick_by_ntrp_closest(men, None)
-                        men.remove(pick)
-                    elif want_w and women:
-                        pick = random.choice(women) if not ntrp_on else _pick_by_ntrp_closest(women, None)
-                        women.remove(pick)
-                    else:
-                        rest = men + women
-                        if not rest:
-                            break
-                        pick = random.choice(rest) if not ntrp_on else _pick_by_ntrp_closest(rest, None)
-                        if pick in men:
-                            men.remove(pick)
+                    # 둘 다 이미 있으면 그대로(사용자 고정일 수도)
+                    if va != "선택" and vb != "선택":
+                        continue
+
+                    # 한쪽만 있으면 -> 반대 성별로 채우기(가능하면)
+                    if va != "선택" and vb == "선택":
+                        want = "여" if _gender_of(va) == "남" else "남"
+                        pick = _pick_from(avail, want_gender=want, target_for_ntrp=va if ntrp_on else None)
+                        if not pick:
+                            pick = _pick_from(avail, want_gender=None, target_for_ntrp=va if ntrp_on else None)
+                        if pick:
+                            kk = _manual_key(r, c, b, gtype)
+                            plan[kk] = pick
+                            cur_pos[b] = pick
+                            used.add(pick)
+                            counts[pick] += 1
+                            new_auto_keys.add(kk)
+                            auto_map[kk] = pick
+                            _remove(avail, pick)
+                        continue
+
+                    if va == "선택" and vb != "선택":
+                        want = "여" if _gender_of(vb) == "남" else "남"
+                        pick = _pick_from(avail, want_gender=want, target_for_ntrp=vb if ntrp_on else None)
+                        if not pick:
+                            pick = _pick_from(avail, want_gender=None, target_for_ntrp=vb if ntrp_on else None)
+                        if pick:
+                            kk = _manual_key(r, c, a, gtype)
+                            plan[kk] = pick
+                            cur_pos[a] = pick
+                            used.add(pick)
+                            counts[pick] += 1
+                            new_auto_keys.add(kk)
+                            auto_map[kk] = pick
+                            _remove(avail, pick)
+                        continue
+
+                    # 둘 다 비었으면 -> 남/여 한 명씩(가능하면)
+                    if va == "선택" and vb == "선택":
+                        men_av = [p for p in avail if _gender_of(p) == "남"]
+                        wom_av = [p for p in avail if _gender_of(p) == "여"]
+
+                        if men_av and wom_av:
+                            first_gender = random.choice(["남", "여"])
+                            p1 = _pick_from(avail, want_gender=first_gender, target_for_ntrp=None)
+                            if p1:
+                                _remove(avail, p1)
+                                used.add(p1)
+                                counts[p1] += 1
+
+                                other_gender = "여" if first_gender == "남" else "남"
+                                p2 = _pick_from(avail, want_gender=other_gender, target_for_ntrp=p1 if ntrp_on else None)
+                                if not p2:
+                                    p2 = _pick_from(avail, want_gender=None, target_for_ntrp=p1 if ntrp_on else None)
+
+                                if p2:
+                                    _remove(avail, p2)
+                                    used.add(p2)
+                                    counts[p2] += 1
+
+                                    kka = _manual_key(r, c, a, gtype)
+                                    kkb = _manual_key(r, c, b, gtype)
+                                    plan[kka] = p1
+                                    plan[kkb] = p2
+                                    cur_pos[a] = p1
+                                    cur_pos[b] = p2
+                                    new_auto_keys.update([kka, kkb])
+                                    auto_map[kka] = p1
+                                    auto_map[kkb] = p2
+                                else:
+                                    # 두 번째 못 뽑으면 롤백
+                                    used.discard(p1)
+                                    counts[p1] -= 1
+                                    avail.append(p1)
                         else:
-                            women.remove(pick)
+                            # 성별이 한쪽 부족 -> 그냥 참여수 적은 순으로 채움(폴백)
+                            pick1 = _pick_from(avail, want_gender=None, target_for_ntrp=None)
+                            if pick1:
+                                _remove(avail, pick1)
+                                used.add(pick1)
+                                counts[pick1] += 1
+                                pick2 = _pick_from(avail, want_gender=None, target_for_ntrp=pick1 if ntrp_on else None)
+                                if pick2:
+                                    _remove(avail, pick2)
+                                    used.add(pick2)
+                                    counts[pick2] += 1
 
-                    picks.append(pick)
+                                    kka = _manual_key(r, c, a, gtype)
+                                    kkb = _manual_key(r, c, b, gtype)
+                                    plan[kka] = pick1
+                                    plan[kkb] = pick2
+                                    cur_pos[a] = pick1
+                                    cur_pos[b] = pick2
+                                    new_auto_keys.update([kka, kkb])
+                                    auto_map[kka] = pick1
+                                    auto_map[kkb] = pick2
 
-            elif gender_mode == "동성":
-                already_gender = _gender_of(already[0]) if already else None
-                cand = men if already_gender == "남" else women if already_gender == "여" else (men if len(men) >= need else women)
-                if len(cand) >= need:
-                    picks = random.sample(cand, need)
+                # ✅ (옵션) NTRP 켰으면 팀합 밸런스 조금 더 맞추기: (1<->3) 또는 (2<->4) 스왑
+                if ntrp_on and all(cur_pos[p] != "선택" for p in (1, 2, 3, 4)):
+                    # 혼합이 실제로 된 경우만(스왑해도 혼합 유지되는 경우)
+                    if _pair_is_mixed(cur_pos[1], cur_pos[2]) and _pair_is_mixed(cur_pos[3], cur_pos[4]):
+                        def nval(x):
+                            v = _ntrp_of(x)
+                            return 3.0 if v is None else float(v)
+
+                        def diff(pos):
+                            t1 = nval(pos[1]) + nval(pos[2])
+                            t2 = nval(pos[3]) + nval(pos[4])
+                            return abs(t1 - t2)
+
+                        best = dict(cur_pos)
+                        best_d = diff(best)
+
+                        # 후보 스왑
+                        for a, b in [(1, 3), (2, 4)]:
+                            tmp = dict(cur_pos)
+                            tmp[a], tmp[b] = tmp[b], tmp[a]
+                            # 스왑해도 혼합 유지?
+                            if _pair_is_mixed(tmp[1], tmp[2]) and _pair_is_mixed(tmp[3], tmp[4]):
+                                d = diff(tmp)
+                                if d < best_d:
+                                    best = tmp
+                                    best_d = d
+
+                        # 개선되면 plan에 반영(스왑된 자리만)
+                        if best_d < diff(cur_pos):
+                            for pos in (1, 2, 3, 4):
+                                kpos = _manual_key(r, c, pos, gtype)
+                                if best[pos] != cur_pos[pos]:
+                                    plan[kpos] = best[pos]
+                                    cur_pos[pos] = best[pos]
+                                    new_auto_keys.add(kpos)
+                                    auto_map[kpos] = best[pos]
 
             else:
-                rest = men + women
-                if len(rest) >= need:
-                    picks = random.sample(rest, need)
+                # 랜덤/동성(이미 필터링됨) -> 빈칸 수 만큼 참여수 낮은 사람 우선으로 채움
+                for pos in pos_list:
+                    if cur_pos[pos] != "선택":
+                        continue
+                    if not avail:
+                        break
+                    pick = _pick_from(avail, want_gender=None, target_for_ntrp=None)
+                    if pick:
+                        kpos = _manual_key(r, c, pos, gtype)
+                        plan[kpos] = pick
+                        cur_pos[pos] = pick
+                        used.add(pick)
+                        counts[pick] += 1
+                        new_auto_keys.add(kpos)
+                        auto_map[kpos] = pick
+                        _remove(avail, pick)
 
-            for k, p in zip(empty_keys, picks):
-                plan[k] = p
-                used.add(p)
-
-        # ✅ 기존 값 유지
+        # ✅ 고정값 유지(사용자가 넣은 값)
         for k, v in fixed.items():
             if v and v != "선택":
                 plan.setdefault(k, v)
 
+        # ✅ 이번 라운드 자동채움 기록 갱신
+        st.session_state["_auto_fill_keys_by_round"][rid] = sorted(list(new_auto_keys))
+
         return plan
 
     # =========================================================
-    # ✅ 조별 분리 대진 생성용 헬퍼
+    # ✅ 조별 분리 대진 생성용 헬퍼 (핵심)
     # =========================================================
     def _split_players_ab(players, roster_by_name):
         a = [p for p in players if roster_by_name.get(p, {}).get("group") == "A조"]
@@ -3876,7 +4153,6 @@ with tab2:
     guest_list = st.session_state.guest_list
     names_all_members = [p["name"] for p in roster]
 
-
     def _backup_today_players():
         cur = st.session_state.get("ms_today_players", [])
         if isinstance(cur, list):
@@ -3906,9 +4182,7 @@ with tab2:
         else:
             st.session_state.special_match = False
 
-
     col_ms, col_sp = st.columns([3, 2])
-
 
     with col_sp:
         guest_mode_ui = st.checkbox(
@@ -3937,7 +4211,6 @@ with tab2:
         st.session_state["_guest_clear_pending"] = False
 
     def _apply_guest_clear_pending():
-        # 기본값 주입 (위젯 렌더 전이므로 안전)
         default_ntrp = NTRP_OPTIONS[0] if isinstance(NTRP_OPTIONS, (list, tuple)) and NTRP_OPTIONS else "모름"
 
         if "guest_name_input" not in st.session_state:
@@ -3949,17 +4222,12 @@ with tab2:
         if "guest_ntrp_input" not in st.session_state:
             st.session_state["guest_ntrp_input"] = default_ntrp
 
-        # pending이 켜져있으면, 이 타이밍(위젯 렌더 전)에만 초기화
         if st.session_state.get("_guest_clear_pending", False):
             st.session_state["guest_name_input"] = ""
             st.session_state["guest_gender_input"] = "남"
             st.session_state["guest_group_input"] = "미배정"
             st.session_state["guest_ntrp_input"] = default_ntrp
             st.session_state["_guest_clear_pending"] = False
-
-
-
-
 
     if not guest_enabled and st.session_state._injected_guest_names:
         for nm in list(st.session_state._injected_guest_names):
@@ -4016,12 +4284,8 @@ with tab2:
                     st.session_state.guest_list = guest_list
                     st.session_state["guest_add_msg"] = f"게스트 '{name_clean}' 추가되었습니다."
 
-                    # ✅ 입력칸만 초기화 (pending + rerun)
                     st.session_state["_guest_clear_pending"] = True
                     safe_rerun()
-
-
-
 
         if st.session_state.get("guest_add_msg"):
             st.success(st.session_state["guest_add_msg"])
@@ -4046,20 +4310,14 @@ with tab2:
                         st.session_state.guest_list = guest_list
                         safe_rerun()
 
-
-
     guest_names = [g["name"] for g in guest_list] if guest_enabled else []
     names_all = names_all_members + guest_names
     names_sorted = sorted(names_all, key=lambda n: n)
 
-    # ✅ 여기서 복원(멀티셀렉트 생성 전에!)
     _restore_today_players(names_sorted)
-
-    # ✅ 크래시 방지: 현재 선택값이 옵션에서 빠졌으면 자동 제거
     _sanitize_multiselect_value("ms_today_players", names_sorted)
 
     with col_ms:
-        # ❗ default=[] 빼고 key만 사용
         sel_players = st.multiselect("오늘 참가 선수들", names_sorted, key="ms_today_players")
 
     if guest_enabled:
@@ -4336,7 +4594,6 @@ with tab2:
         st.subheader("4-1. 직접 배정(수동) 입력")
         st.caption("※ 한 라운드 안에서는 같은 선수가 중복 선택되지 않도록 제한됩니다.")
 
-        # ✅ pending → session_state (위젯 렌더 전에만!)
         _apply_manual_pending()
 
         st.markdown("**성별 옵션**")
@@ -4371,14 +4628,15 @@ with tab2:
         with b3:
             st.caption("라운드별 자동 채우기/초기화는 아래 라운드 박스에서도 가능")
 
-        # ✅ plan을 '바로' state에 반영 (pending/rerun 제거)
         def _apply_plan_to_state(plan: dict):
+            """✅ plan을 session_state에 그대로 적용 (값이 '선택'이어도 적용해야 초기화/재랜덤 가능)"""
             if not isinstance(plan, dict):
                 return
             for k, v in plan.items():
-                if v and v != "선택":
-                    st.session_state[k] = v
-                    st.session_state[f"_prev_{k}"] = v
+                if v is None:
+                    v = "선택"
+                st.session_state[k] = v
+                st.session_state[f"_prev_{k}"] = v
 
         # -------------------------
         # 전체 초기화
@@ -4388,14 +4646,17 @@ with tab2:
                 for k in _manual_all_keys_for_round(rr, court_count, gtype):
                     st.session_state[k] = "선택"
                     st.session_state[f"_prev_{k}"] = "선택"
-            st.session_state.pop("_manual_pending_set", None)  # 혹시 남아있던 거 제거
+                _autofill_clear_round(rr, gtype)
+
+            st.session_state["_manual_prefill"] = {}
+            st.session_state["_manual_prefill_used"] = False
+            st.session_state.pop("_manual_pending_set", None)
 
         # -------------------------
         # 전체 라운드 빈칸 채우기
         # -------------------------
         if fill_all_clicked and players_selected:
             plan_all = {}
-            gm = _manual_gender_to_mode(manual_gender_mode)
             for rr in range(1, int(total_rounds) + 1):
                 plan_r = _fill_round_plan(
                     r=rr,
@@ -4403,8 +4664,10 @@ with tab2:
                     court_count=court_count,
                     gtype=gtype,
                     view_mode=view_mode_for_schedule,
-                    gender_mode=gm,
+                    gender_mode=("혼합" if manual_gender_mode == "혼합" else "동성" if manual_gender_mode == "동성" else "랜덤"),
                     ntrp_on=bool(manual_fill_ntrp),
+                    total_rounds=int(total_rounds),
+                    reroll=True,   # ✅ 누를 때마다 자동채운 칸 재랜덤
                 )
                 plan_all.update(plan_r)
 
@@ -4452,8 +4715,14 @@ with tab2:
                     for k in _manual_all_keys_for_round(r, court_count, gtype):
                         st.session_state[k] = "선택"
                         st.session_state[f"_prev_{k}"] = "선택"
+                    _autofill_clear_round(r, gtype)
 
-                # ✅ 이 라운드 빈칸 채우기
+                    pre = st.session_state.get("_manual_prefill", {})
+                    for k in _manual_all_keys_for_round(r, court_count, gtype):
+                        pre.pop(k, None)
+                    st.session_state["_manual_prefill"] = pre
+
+                # ✅ 이 라운드 빈칸 채우기 (누를 때마다 자동채운 칸 재랜덤 + 참여수 적은 사람 우선 + 혼합 남여/남여 강제)
                 if fill_round_clicked:
                     plan = _fill_round_plan(
                         r=r,
@@ -4461,8 +4730,10 @@ with tab2:
                         court_count=court_count,
                         gtype=gtype,
                         view_mode=view_mode_for_schedule,
-                        gender_mode=_manual_gender_to_mode(manual_gender_mode),
+                        gender_mode=("혼합" if manual_gender_mode == "혼합" else "동성" if manual_gender_mode == "동성" else "랜덤"),
                         ntrp_on=bool(manual_fill_ntrp),
+                        total_rounds=int(total_rounds),
+                        reroll=True,
                     )
                     if plan:
                         _apply_plan_to_state(plan)
@@ -4471,20 +4742,106 @@ with tab2:
 
                 st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
 
-                # ✅ 코트별 selectbox 렌더 (단식/복식 중복 제거: 헬퍼 1개로 렌더)
                 for c in range(1, int(court_count) + 1):
                     st.markdown(f"**코트 {c}**")
 
                     grp_tag = _court_group_tag(view_mode_for_schedule, c)
                     pool = _pool_by_group(players_selected, grp_tag)
 
-                    _render_manual_court_selectboxes(
-                        r=r,
-                        c=c,
-                        pool=pool,
-                        court_count=court_count,
-                        gtype=gtype,
-                    )
+                    if gtype == "단식":
+                        k1 = _manual_key(r, c, 1, gtype)
+                        k2 = _manual_key(r, c, 2, gtype)
+
+                        col1, colVS, col2 = st.columns([3.2, 0.9, 3.2], vertical_alignment="center")
+
+                        with col1:
+                            opts, idx = _build_filtered_options_for_key(r, k1, pool, court_count, gtype)
+                            st.selectbox(
+                                "p1",
+                                opts,
+                                index=idx,
+                                key=k1,
+                                label_visibility="collapsed",
+                                on_change=_make_on_change_validator(r, k1, court_count, gtype),
+                            )
+                            st.session_state[f"_prev_{k1}"] = st.session_state.get(k1, "선택")
+
+                        with colVS:
+                            st.markdown("<div style='text-align:center; font-weight:900;'>VS</div>", unsafe_allow_html=True)
+
+                        with col2:
+                            opts, idx = _build_filtered_options_for_key(r, k2, pool, court_count, gtype)
+                            st.selectbox(
+                                "p2",
+                                opts,
+                                index=idx,
+                                key=k2,
+                                label_visibility="collapsed",
+                                on_change=_make_on_change_validator(r, k2, court_count, gtype),
+                            )
+                            st.session_state[f"_prev_{k2}"] = st.session_state.get(k2, "선택")
+
+                    else:
+                        k1 = _manual_key(r, c, 1, gtype)
+                        k2 = _manual_key(r, c, 2, gtype)
+                        k3 = _manual_key(r, c, 3, gtype)
+                        k4 = _manual_key(r, c, 4, gtype)
+
+                        col1, col2, colVS, col3, col4 = st.columns(
+                            [2.6, 2.6, 0.9, 2.6, 2.6],
+                            vertical_alignment="center"
+                        )
+
+                        with col1:
+                            opts, idx = _build_filtered_options_for_key(r, k1, pool, court_count, gtype)
+                            st.selectbox(
+                                "t1a",
+                                opts,
+                                index=idx,
+                                key=k1,
+                                label_visibility="collapsed",
+                                on_change=_make_on_change_validator(r, k1, court_count, gtype),
+                            )
+                            st.session_state[f"_prev_{k1}"] = st.session_state.get(k1, "선택")
+
+                        with col2:
+                            opts, idx = _build_filtered_options_for_key(r, k2, pool, court_count, gtype)
+                            st.selectbox(
+                                "t1b",
+                                opts,
+                                index=idx,
+                                key=k2,
+                                label_visibility="collapsed",
+                                on_change=_make_on_change_validator(r, k2, court_count, gtype),
+                            )
+                            st.session_state[f"_prev_{k2}"] = st.session_state.get(k2, "선택")
+
+                        with colVS:
+                            st.markdown("<div style='text-align:center; font-weight:900;'>VS</div>", unsafe_allow_html=True)
+
+                        with col3:
+                            opts, idx = _build_filtered_options_for_key(r, k3, pool, court_count, gtype)
+                            st.selectbox(
+                                "t2a",
+                                opts,
+                                index=idx,
+                                key=k3,
+                                label_visibility="collapsed",
+                                on_change=_make_on_change_validator(r, k3, court_count, gtype),
+                            )
+                            st.session_state[f"_prev_{k3}"] = st.session_state.get(k3, "선택")
+
+                        with col4:
+                            opts, idx = _build_filtered_options_for_key(r, k4, pool, court_count, gtype)
+                            st.selectbox(
+                                "t2b",
+                                opts,
+                                index=idx,
+                                key=k4,
+                                label_visibility="collapsed",
+                                on_change=_make_on_change_validator(r, k4, court_count, gtype),
+                            )
+                            st.session_state[f"_prev_{k4}"] = st.session_state.get(k4, "선택")
 
                     st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
 
@@ -4632,7 +4989,6 @@ with tab2:
                         if merged:
                             return merged
 
-            # 폴백: 조별 분리인데 한쪽 코트가 없거나 생성 실패하면 전체 생성
             tries = 80
             best = []
             for _ in range(tries):
@@ -4642,7 +4998,6 @@ with tab2:
                     break
             return best
 
-        # ✅ 전체 모드면: 기존처럼 전체 생성
         tries = 80
         best = []
         for _ in range(tries):
@@ -4652,7 +5007,6 @@ with tab2:
                 break
         return best
 
-    # 생성
     if gen_clicked:
         if len(players_selected) < (4 if gtype == "복식" else 2):
             st.error("인원이 부족합니다.")
