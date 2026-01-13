@@ -3894,6 +3894,147 @@ with tab2:
         return out
 
     # =========================================================
+    # ✅ 팀별 모드(복식/단식) 자동 대진 생성 유틸
+    #   - 출력 포맷: [(gt, [t1], [t2], court), ...]  (✅ 기존 today_schedule 호환)
+    # =========================================================
+    TEAM_COLORS = ["레드", "그린", "블루", "옐로우"]
+
+    def _ensure_team_state(players_selected, team_count: int):
+        """players_selected 변경/팀수 변경에도 팀배정 상태 안전 유지 + 기본값 자동 분배"""
+        team_count = int(team_count)
+        team_opts = TEAM_COLORS[:team_count]
+
+        st.session_state.setdefault("team_count", team_count)
+        st.session_state.setdefault("team_assign", {})  # {name: "레드"}
+
+        assign = st.session_state.get("team_assign", {})
+        # prune (선택 멤버에서 빠진 사람 제거)
+        assign = {p: assign.get(p) for p in players_selected}
+
+        # 기본 배정(아직 없거나 유효하지 않으면 라운드로빈)
+        for i, p in enumerate(players_selected):
+            cur = assign.get(p)
+            if (not cur) or (cur not in team_opts):
+                assign[p] = team_opts[i % len(team_opts)]
+
+        st.session_state["team_assign"] = assign
+        st.session_state["team_count"] = team_count
+        return assign, team_opts
+
+    def build_team_mode_schedule(
+        players_selected,
+        team_assign: dict,
+        base_gtype: str,     # "복식" or "단식"
+        total_rounds: int,
+        court_count: int,
+        team_count: int,
+    ):
+        """
+        팀별 자동 대진 생성
+        - 같은 팀끼리(같은 색) 절대 상대 안 붙음
+        - 같은 라운드에서 같은 사람 중복 출전 방지
+        - 덜 뛴 사람 우선 배치(간단 공정성)
+        """
+        team_count = int(team_count)
+        total_rounds = int(total_rounds)
+        court_count = int(court_count)
+
+        team_opts = TEAM_COLORS[:team_count]
+        roster = {c: [] for c in team_opts}
+
+        # 팀 로스터 구성
+        for p in players_selected:
+            c = team_assign.get(p, team_opts[0])
+            if c not in roster:
+                c = team_opts[0]
+            roster[c].append(p)
+
+        # 팀별 최소 인원 조건
+        need_k = 2 if base_gtype == "복식" else 1
+        usable_teams = [c for c, lst in roster.items() if len(lst) >= need_k]
+        if len(usable_teams) < 2:
+            return []
+
+        player_games = Counter()
+        team_vs = Counter()  # (teamA, teamB) 만난 횟수 최소화
+
+        def _avail_teams_this_round(used_round):
+            out = []
+            for t in usable_teams:
+                left = [p for p in roster[t] if p not in used_round]
+                if len(left) >= need_k:
+                    out.append(t)
+            return out
+
+        def _pick_team_pair(avail_teams):
+            best = None
+            best_score = None
+            for i in range(len(avail_teams)):
+                for j in range(i + 1, len(avail_teams)):
+                    a, b = avail_teams[i], avail_teams[j]
+                    key = tuple(sorted((a, b)))
+                    score = (team_vs[key],)
+                    if best_score is None or score < best_score:
+                        best_score = score
+                        best = (a, b)
+            return best
+
+        def _pick_players(team, used_round):
+            cand = [p for p in roster[team] if p not in used_round]
+            cand.sort(key=lambda p: (player_games[p], p))  # 덜 뛴 사람 우선
+            return cand[:need_k] if len(cand) >= need_k else None
+
+        schedule = []
+
+        for rr in range(1, total_rounds + 1):
+            used_round = set()
+
+            for cc in range(1, court_count + 1):
+                avail = _avail_teams_this_round(used_round)
+                if len(avail) < 2:
+                    break
+
+                pair = _pick_team_pair(avail)
+                if not pair:
+                    break
+
+                t1, t2 = pair
+                p1 = _pick_players(t1, used_round)
+                p2 = _pick_players(t2, used_round)
+
+                # 혹시 한쪽이 안 되면 다른 팀으로 대체 시도
+                if (not p1) or (not p2):
+                    alt = [t for t in avail if t != t1]
+                    ok = False
+                    for tt in alt:
+                        cand2 = _pick_players(tt, used_round)
+                        if cand2:
+                            t2 = tt
+                            p2 = cand2
+                            ok = True
+                            break
+                    p1 = _pick_players(t1, used_round)
+                    if (not ok) or (not p1) or (not p2):
+                        break
+
+                # 사용 처리
+                for p in p1 + p2:
+                    used_round.add(p)
+                    player_games[p] += 1
+
+                team_vs[tuple(sorted((t1, t2)))] += 1
+
+                if base_gtype == "복식":
+                    schedule.append(("복식", [p1[0], p1[1]], [p2[0], p2[1]], cc))
+                else:
+                    schedule.append(("단식", [p1[0]], [p2[0]], cc))
+
+        return schedule
+
+
+
+
+    # =========================================================
     # 0. 저장할 날짜 선택
     # =========================================================
     st.subheader("1. 저장할 날짜 선택")
@@ -4253,45 +4394,127 @@ with tab2:
 
     players_selected = current_order.copy()
 
-    gtype = st.radio("게임 타입", ["복식", "단식"], horizontal=True, key="gtype_radio")
-    make_mode = st.radio("대진 생성 방식", ["자동 생성", "직접 배정(수동)"], horizontal=True, key="make_mode_radio")
+    # ✅ 게임 타입: 팀별 모드 추가(표시용), 내부 gtype은 "복식/단식"만 쓰게 유지
+    gtype_ui = st.radio(
+        "게임 타입",
+        ["복식", "단식", "복식 팀별", "단식 팀별"],
+        horizontal=True,
+        key="gtype_radio",
+    )
+    is_team_mode = ("팀별" in str(gtype_ui))
+    gtype = "복식" if str(gtype_ui).startswith("복식") else "단식"  # ✅ 기존 로직 호환용(중요!)
+
+    make_mode = st.radio(
+        "대진 생성 방식",
+        ["자동 생성", "직접 배정(수동)"],
+        horizontal=True,
+        key="make_mode_radio",
+    )
     is_manual_mode = (make_mode == "직접 배정(수동)")
+    is_team_auto_mode = (is_team_mode and (not is_manual_mode))
+
+    # =========================================================
+    # ✅ 팀별 모드 UI: 팀 수(2~4) + 참가자별 팀 색상 선택
+    # =========================================================
+    if is_team_auto_mode:
+        st.markdown("#### 🧩 팀 구성(팀별 모드)")
+        team_count = st.radio(
+            "몇 팀으로 나눌까?",
+            [2, 3, 4],
+            horizontal=True,
+            key="team_count",
+        )
+
+        team_assign, team_opts = _ensure_team_state(players_selected, int(team_count))
+
+        st.caption("참가자 옆에서 팀 색상을 골라줘. 같은 색 = 같은 팀이야.")
+        cols = st.columns(2)
+        for i, p in enumerate(players_selected):
+            with cols[i % 2]:
+                prev = team_assign.get(p, team_opts[0])
+                if prev not in team_opts:
+                    prev = team_opts[0]
+                idx = team_opts.index(prev)
+
+                picked = st.selectbox(
+                    f"{p} 팀",
+                    team_opts,
+                    index=idx,
+                    key=f"team_pick__{p}",
+                )
+                team_assign[p] = picked
+
+        st.session_state["team_assign"] = team_assign
+
+        # 간단 검증 메시지
+        roster_tmp = {c: [] for c in team_opts}
+        for nm, col in team_assign.items():
+            if col in roster_tmp:
+                roster_tmp[col].append(nm)
+
+        if gtype == "복식":
+            ok = [c for c, lst in roster_tmp.items() if len(lst) >= 2]
+            if len(ok) < 2:
+                st.warning("복식 팀별은 '최소 2명 이상' 팀이 2개는 필요해.")
+        else:
+            ok = [c for c, lst in roster_tmp.items() if len(lst) >= 1]
+            if len(ok) < 2:
+                st.warning("단식 팀별은 '최소 1명 이상' 팀이 2개는 필요해.")
+
+
+
+    if is_team_mode and is_manual_mode:
+        st.caption("⚠️ 팀별 모드는 자동 생성에서만 적용돼. (수동 입력에서는 복식/단식 일반모드로 동작)")
+
+
 
     auto_basis = "개인당 경기 수 기준"
     if not is_manual_mode:
-        auto_basis = st.radio(
-            "자동 생성 기준",
-            ["개인당 경기 수 기준", "총 게임 수(라운드 수) 기준"],
-            horizontal=True,
-            key="auto_basis_radio",
-        )
+        if is_team_auto_mode:
+            auto_basis = "총 게임 수(라운드 수) 기준"
+            st.caption("팀별 모드는 '총 게임 수(라운드 수) 기준'으로 생성돼.")
+        else:
+            auto_basis = st.radio(
+                "자동 생성 기준",
+                ["개인당 경기 수 기준", "총 게임 수(라운드 수) 기준"],
+                horizontal=True,
+                key="auto_basis_radio",
+            )
+
 
     mode_label = None
     singles_mode = None
 
-    if gtype == "복식":
-        doubles_modes = [
-            "랜덤 복식",
-            "동성복식 (남+남 / 여+여)",
-            "혼합복식 (남+여 짝)",
-            "한울 AA 방식 (4게임 고정)",
-        ]
-        mode_label = st.selectbox(
-            "복식 대진 방식",
-            doubles_modes,
-            index=3,
-            key="doubles_mode_select",
-            disabled=is_manual_mode,
-        )
-        is_aa_mode = ("한울 AA" in str(mode_label))
-    else:
-        singles_mode = st.selectbox(
-            "단식 대진 방식",
-            ["랜덤 단식", "동성 단식", "혼합 단식"],
-            key="singles_mode_select",
-            disabled=is_manual_mode,
-        )
+    mode_label = None
+    singles_mode = None
+
+    if is_team_auto_mode:
         is_aa_mode = False
+        st.info("팀별 모드에서는 '랜덤/동성/혼합/한울AA/NTRP/조별' 옵션이 적용되지 않아. 팀 색상 기준으로만 자동 대진돼.")
+    else:
+        if gtype == "복식":
+            doubles_modes = [
+                "랜덤 복식",
+                "동성복식 (남+남 / 여+여)",
+                "혼합복식 (남+여 짝)",
+                "한울 AA 방식 (4게임 고정)",
+            ]
+            mode_label = st.selectbox(
+                "복식 대진 방식",
+                doubles_modes,
+                index=3,
+                key="doubles_mode_select",
+                disabled=is_manual_mode,
+            )
+            is_aa_mode = ("한울 AA" in str(mode_label))
+        else:
+            singles_mode = st.selectbox(
+                "단식 대진 방식",
+                ["랜덤 단식", "동성 단식", "혼합 단식"],
+                key="singles_mode_select",
+                disabled=is_manual_mode,
+            )
+            is_aa_mode = False
 
     unit = 4 if gtype == "복식" else 2
 
@@ -4325,7 +4548,8 @@ with tab2:
                         key="max_games_input",
                     )
 
-        total_rounds_enabled = is_manual_mode or (auto_basis == "총 게임 수(라운드 수) 기준")
+        total_rounds_enabled = is_manual_mode or is_team_auto_mode or (auto_basis == "총 게임 수(라운드 수) 기준")
+
 
         if total_rounds_enabled:
             total_rounds = st.number_input(
@@ -4363,7 +4587,10 @@ with tab2:
         use_ntrp = st.checkbox(
             "NTRP 고려 (비슷한 실력끼리 매칭)",
             value=False,
-            disabled=(is_manual_mode or (gtype == "복식" and is_aa_mode)),
+
+            disabled=(is_manual_mode or is_team_auto_mode or (gtype == "복식" and is_aa_mode))
+
+
             key="use_ntrp_chk",
         )
     with opt2:
@@ -4585,8 +4812,23 @@ with tab2:
         st.markdown("</div>", unsafe_allow_html=True)
 
     def build_best_auto_schedule():
+
         if not players_selected:
             return []
+
+        # ✅ 팀별 자동 모드: 팀 색상 기준 대진 생성
+        if is_team_auto_mode:
+            team_count = int(st.session_state.get("team_count", 2))
+            team_assign = st.session_state.get("team_assign", {})
+            return build_team_mode_schedule(
+                players_selected=players_selected,
+                team_assign=team_assign,
+                base_gtype=gtype,  # ✅ 이미 "복식/단식"으로 정규화됨
+                total_rounds=int(total_rounds),
+                court_count=int(court_count),
+                team_count=team_count,
+            )
+
 
         # AA 모드
         if (gtype == "복식") and ("한울 AA" in str(mode_label)):
