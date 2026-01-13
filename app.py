@@ -4587,7 +4587,7 @@ with tab2:
         use_ntrp = st.checkbox(
             "NTRP 고려 (비슷한 실력끼리 매칭)",
             value=False,
-            disabled=(is_manual_mode or is_team_auto_mode or (gtype == "복식" and is_aa_mode))
+            disabled=(is_manual_mode or is_team_auto_mode or (gtype == "복식" and is_aa_mode)),
             key="use_ntrp_chk",
         )
     with opt2:
